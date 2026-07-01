@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>APGK VPN — Дніпровська</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Custom Titlebar -->
+  <div class="titlebar" id="titlebar">
+    <div class="titlebar-drag">
+      <div class="titlebar-title">APGK VPN</div>
+    </div>
+    <div class="titlebar-controls">
+      <button class="titlebar-btn minimize" id="btn-minimize" title="Згорнути">
+        <svg width="12" height="12" viewBox="0 0 12 12"><rect y="5" width="12" height="1.5" rx="0.75" fill="currentColor"/></svg>
+      </button>
+      <button class="titlebar-btn maximize" id="btn-tray" title="В трей">
+        <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 8.5L6 4.5L10 8.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button class="titlebar-btn close" id="btn-close" title="Закрити">
+        <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Main Container -->
+  <div class="app-container">
+    <!-- Header / Branding -->
+    <div class="header">
+      <img src="assets/logo.svg" alt="APGK Logo" class="logo" id="app-logo">
+      <div class="brand-text">
+        <h1 class="brand-name">АПГК Дніпровська</h1>
+        <p class="brand-sub">Захищене VPN з'єднання</p>
+        <div class="client-id-badge" title="Код для віддаленого керування">ID: <span id="client-id-display">...</span></div>
+      </div>
+    </div>
+
+    <!-- Connection Section -->
+    <div class="connection-section">
+      <!-- Status Ring -->
+      <div class="status-ring" id="status-ring">
+        <div class="ring-glow" id="ring-glow"></div>
+        <svg class="ring-svg" viewBox="0 0 200 200">
+          <circle class="ring-track" cx="100" cy="100" r="88" />
+          <circle class="ring-progress" id="ring-progress" cx="100" cy="100" r="88" />
+        </svg>
+        <button class="power-btn" id="power-btn" title="Підключити / Відключити VPN">
+          <svg class="power-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v6"/>
+            <path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Status Text -->
+      <div class="status-info">
+        <div class="status-label" id="status-label">Відключено</div>
+        <div class="status-detail" id="status-detail">Натисніть для підключення</div>
+      </div>
+
+      <!-- Timer -->
+      <div class="connection-timer" id="connection-timer">
+        <span class="timer-icon">⏱</span>
+        <span class="timer-value" id="timer-value">00:00:00</span>
+      </div>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="stats-grid" id="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon download">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 5v14M19 12l-7 7-7-7"/>
+          </svg>
+        </div>
+        <div class="stat-data">
+          <div class="stat-value" id="stat-download">0 B</div>
+          <div class="stat-label">Отримано</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon upload">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 19V5M5 12l7-7 7 7"/>
+          </svg>
+        </div>
+        <div class="stat-data">
+          <div class="stat-value" id="stat-upload">0 B</div>
+          <div class="stat-label">Надіслано</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tunnel Info Bar -->
+    <div class="tunnel-bar" id="tunnel-bar">
+      <div class="tunnel-name" id="tunnel-name">Немає конфігурації</div>
+      <div class="tunnel-ip" id="tunnel-ip"></div>
+    </div>
+
+    <!-- Bottom Actions -->
+    <div class="bottom-actions">
+      <button class="action-btn import-btn" id="btn-import" title="Імпорт .conf файлу">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+        </svg>
+        <span>Імпорт конфігурації</span>
+      </button>
+      <button class="action-btn settings-btn" id="btn-settings" title="Налаштування">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Settings Panel (hidden by default) -->
+  <div class="settings-panel" id="settings-panel">
+    <div class="settings-header">
+      <h2>Налаштування</h2>
+      <button class="settings-close" id="btn-settings-close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="settings-body">
+      <div class="setting-item">
+        <div class="setting-info">
+          <div class="setting-name">Автопідключення</div>
+          <div class="setting-desc">Підключатися автоматично при запуску</div>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="setting-autoconnect">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="setting-item">
+        <div class="setting-info">
+          <div class="setting-name">Запуск з Windows</div>
+          <div class="setting-desc">Запускати клієнт при вході в систему</div>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="setting-autostart">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="setting-item">
+        <div class="setting-info">
+          <div class="setting-name">Згортати в трей</div>
+          <div class="setting-desc">Згортати в системний лоток при закритті</div>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="setting-tray" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="setting-divider"></div>
+      <div class="setting-item">
+        <div class="setting-info">
+          <div class="setting-name">Версія</div>
+          <div class="setting-desc">APGK VPN Client v1.0.0</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Drag & Drop Overlay -->
+  <div class="drop-overlay" id="drop-overlay">
+    <div class="drop-content">
+      <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="12" y="8" width="40" height="48" rx="4"/>
+        <path d="M22 28l10 10 10-10M32 38V18"/>
+      </svg>
+      <p>Перетягніть .conf файл сюди</p>
+    </div>
+  </div>
+
+  <!-- Notification Toast -->
+  <div class="toast" id="toast">
+    <div class="toast-icon" id="toast-icon"></div>
+    <div class="toast-message" id="toast-message"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

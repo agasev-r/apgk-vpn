@@ -1,0 +1,21 @@
+{
+  "name": "apgk-vpn-client",
+  "productName": "APGK VPN",
+  "version": "1.0.0",
+  "description": "АПГК Дніпровська — Фірмовий VPN Клієнт",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win",
+    "dist": "electron-builder --win --publish never"
+  },
+  "author": {
+    "name": "АПГК Дніпровська",
+    "email": "it@apgk.com.ua"
+  },
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^26.0.0"
+  }
+}

@@ -1,0 +1,30 @@
+# Electron build and packaging output
+node_modules/
+dist/
+build/
+out/
+app-update.yml
+
+# WireGuard configs and private keys (DO NOT UPLOAD!)
+*.conf
+resources/*.conf
+src/resources/*.conf
+
+# Local user/app settings & state
+window-settings.json
+*.log
+apgk_vpn_debug.log
+
+# Database credentials & sensitive server settings (DO NOT UPLOAD!)
+server/db.php
+
+# OS generated files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# IDE and environment files
+.vscode/
+.idea/
+.env
+.gemini/

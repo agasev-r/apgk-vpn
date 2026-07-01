@@ -1,0 +1,44 @@
+appId: com.apgk.vpn
+productName: APGK VPN
+copyright: "© 2026 АПГК Дніпровська"
+
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - "**/*"
+  - "!dist/**"
+  - "!build/**"
+  - "!*.md"
+  - "!.git/**"
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.png
+  artifactName: "APGK_VPN_Setup_${version}.${ext}"
+
+nsis:
+  oneClick: false
+  perMachine: true
+  allowElevation: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: "APGK VPN"
+  uninstallDisplayName: "APGK VPN Client"
+  menuCategory: "АПГК Дніпровська"
+  include: build/installer.nsh
+  warningsAsErrors: false
+  runAfterFinish: true
+  installerLanguages:
+    - uk
+    - ru
+
+extraResources:
+  - from: resources/
+    to: resources/
+    filter:
+      - "**/*"
