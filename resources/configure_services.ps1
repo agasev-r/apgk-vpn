@@ -2,7 +2,8 @@
 # Configures all WireGuard services to allow Interactive Users (IU) to start/stop
 # and sets startup to Manual (demand). Runs elevated during installation.
 
-$sddl = 'D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWRPWPDTLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)(A;;CCLCSWRPWPDTLOCRRC;;;S-1-5-32-556)'
+# IU = Interactive Users, AU = Authenticated Users (domain users), NO = Network Configuration Operators
+$sddl = 'D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWRPWPDTLOCRRC;;;IU)(A;;CCLCSWRPWPDTLOCRRC;;;AU)(A;;CCLCSWLOCRRC;;;SU)(A;;CCLCSWRPWPDTLOCRRC;;;S-1-5-32-556)'
 
 $services = Get-Service | Where-Object { $_.Name -like 'WireGuardTunnel$*' }
 

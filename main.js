@@ -394,41 +394,72 @@ async function tunnelServiceExists(tunnelName) {
 }
 
 /**
- * Start a tunnel service
+ * Start a tunnel service — NO PowerShell, NO UAC prompts.
+ * Uses sc.exe (SDDL-permitted) → net start (fallback) → wireguard.exe CLI (last resort).
  */
 async function startTunnel(tunnelName) {
-  // First try without elevation (works if user is in Network Configuration Operators group or SDDL is set)
+  const serviceName = `WireGuardTunnel$${tunnelName}`;
+
+  // Method 1: sc.exe start (works when SDDL grants IU start rights)
   try {
-    await execFileAsync('sc.exe', ['start', `WireGuardTunnel$${tunnelName}`], { timeout: 15000 });
+    await execFileAsync('sc.exe', ['start', serviceName], { timeout: 15000 });
+    logDebug(`startTunnel: sc.exe start ${serviceName} succeeded.`);
     return true;
   } catch (scErr) {
-    // Log sc error, and fallback to elevated script
-    logDebug(`sc.exe start failed (error code/msg): ${scErr.message}. Attempting elevation fallback...`);
-    try {
-      await runPowerShellElevated(`sc.exe start "WireGuardTunnel$${tunnelName}"`);
-      return true;
-    } catch (err) {
-      throw new Error(`Не вдалося запустити тунель. Якщо це перший запуск після встановлення, будь ласка, перезайдіть в Windows або перезавантажте ПК для активації мережевих прав.`);
-    }
+    logDebug(`startTunnel: sc.exe start failed: ${scErr.message}`);
   }
+
+  // Method 2: net start (sometimes works when sc.exe doesn't, no UAC)
+  try {
+    await execFileAsync('net', ['start', serviceName], { timeout: 15000 });
+    logDebug(`startTunnel: net start ${serviceName} succeeded.`);
+    return true;
+  } catch (netErr) {
+    logDebug(`startTunnel: net start failed: ${netErr.message}`);
+  }
+
+  // Method 3: WireGuard CLI (wireguard.exe /tunnelservice) - as a last non-elevated attempt
+  try {
+    const confPath = getTunnelConfigPath(tunnelName);
+    if (confPath && fs.existsSync(confPath) && fs.existsSync(WG_EXE)) {
+      await execFileAsync(WG_EXE, ['/installtunnelservice', confPath], { timeout: 20000 });
+      logDebug(`startTunnel: wireguard.exe /installtunnelservice succeeded for ${tunnelName}.`);
+      await new Promise(r => setTimeout(r, 2000));
+      return true;
+    }
+  } catch (wgErr) {
+    logDebug(`startTunnel: wireguard.exe fallback failed: ${wgErr.message}`);
+  }
+
+  throw new Error(`Не вдалося запустити тунель "${tunnelName}". Переконайтеся, що WireGuard встановлено та сервіс має коректні права доступу (SDDL). Перезайдіть у Windows або перезавантажте ПК.`);
 }
 
 /**
- * Stop a tunnel service
+ * Stop a tunnel service — NO PowerShell, NO UAC prompts.
+ * Uses sc.exe (SDDL-permitted) → net stop (fallback).
  */
 async function stopTunnel(tunnelName) {
+  const serviceName = `WireGuardTunnel$${tunnelName}`;
+
+  // Method 1: sc.exe stop
   try {
-    await execFileAsync('sc.exe', ['stop', `WireGuardTunnel$${tunnelName}`], { timeout: 15000 });
+    await execFileAsync('sc.exe', ['stop', serviceName], { timeout: 15000 });
+    logDebug(`stopTunnel: sc.exe stop ${serviceName} succeeded.`);
     return true;
   } catch (scErr) {
-    logDebug(`sc.exe stop failed (error code/msg): ${scErr.message}. Attempting elevation fallback...`);
-    try {
-      await runPowerShellElevated(`sc.exe stop "WireGuardTunnel$${tunnelName}"`);
-      return true;
-    } catch (err) {
-      throw new Error(`Не вдалося зупинити тунель. Якщо це перший запуск після встановлення, будь ласка, перезайдіть в Windows або перезавантажте ПК для активації мережевих прав.`);
-    }
+    logDebug(`stopTunnel: sc.exe stop failed: ${scErr.message}`);
   }
+
+  // Method 2: net stop
+  try {
+    await execFileAsync('net', ['stop', serviceName], { timeout: 15000 });
+    logDebug(`stopTunnel: net stop ${serviceName} succeeded.`);
+    return true;
+  } catch (netErr) {
+    logDebug(`stopTunnel: net stop failed: ${netErr.message}`);
+  }
+
+  throw new Error(`Не вдалося зупинити тунель "${tunnelName}". Перезайдіть у Windows або перезавантажте ПК.`);
 }
 
 /**
@@ -457,8 +488,10 @@ async function installTunnel(confPath) {
     // Wait for service to register
     await new Promise(r => setTimeout(r, 2000));
 
-    // Set service permissions to allow Interactive Users & Network Configuration Operators to start/stop without UAC prompts
-    const sddl = 'D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWRPWPDTLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)(A;;CCLCSWRPWPDTLOCRRC;;;S-1-5-32-556)';
+    // Set service permissions to allow Interactive Users (IU), Authenticated Users (AU),
+    // and Network Configuration Operators (NO) to start/stop without UAC prompts.
+    // AU (S-1-5-11) covers ALL domain users, IU covers local interactive sessions.
+    const sddl = 'D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWRPWPDTLOCRRC;;;IU)(A;;CCLCSWRPWPDTLOCRRC;;;AU)(A;;CCLCSWLOCRRC;;;SU)(A;;CCLCSWRPWPDTLOCRRC;;;S-1-5-32-556)';
     await runPowerShellElevated(`sc.exe sdset "WireGuardTunnel$${tunnelName}" "${sddl}"`);
 
     // Set service startup to Automatic
