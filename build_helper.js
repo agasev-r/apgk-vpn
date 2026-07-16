@@ -15,7 +15,7 @@ try {
   
   // Compile to Windows executable (no console window) using /target:winexe
   // Wait, Windows Services can just be standard exe.
-  execSync(`"${cscPath}" /nologo /out:"${outFile}" /reference:System.Web.Extensions.dll "${sourceFile}"`);
+  execSync(`"${cscPath}" /nologo /out:"${outFile}" "${sourceFile}"`);
   console.log('Successfully compiled helper_service.exe');
 } catch (error) {
   console.error('Failed to compile helper_service.cs:', error.stdout ? error.stdout.toString() : error.message);
