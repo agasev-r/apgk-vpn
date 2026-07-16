@@ -1004,12 +1004,21 @@ async function checkTunnelHealth() {
       return;
     }
 
-    let targetIp = '8.8.8.8'; // Default fallback
-    const confPath = path.join(APP_DATA, `${status.tunnelName}.conf`);
-    if (fs.existsSync(confPath)) {
+    let targetIp = '10.9.8.1'; // Default fallback based on standard subnet
+    const programDataConf = path.join('C:\\ProgramData\\APGK_VPN\\tunnels', `${status.tunnelName}.conf`);
+    const appDataConf = path.join(APP_DATA, `${status.tunnelName}.conf`);
+    
+    let confPath = null;
+    if (fs.existsSync(programDataConf)) {
+      confPath = programDataConf;
+    } else if (fs.existsSync(appDataConf)) {
+      confPath = appDataConf;
+    }
+
+    if (confPath) {
       const config = parseConfFile(confPath);
-      if (config.address) {
-        // e.g. "10.0.0.2/24" -> "10.0.0.1"
+      if (config && config.address) {
+        // e.g. "10.9.8.27/24" -> "10.9.8.1"
         const ipMatch = config.address.match(/^(\d+\.\d+\.\d+)\.\d+/);
         if (ipMatch) {
           targetIp = ipMatch[1] + '.1';
@@ -1017,6 +1026,7 @@ async function checkTunnelHealth() {
       }
     }
 
+    logDebug(`Watchdog: pinging gateway ${targetIp} to check tunnel health`);
     const { stdout } = await execFileAsync('ping.exe', ['-n', '1', '-w', '2000', targetIp]);
     if (stdout.includes('TTL=')) {
       failedPings = 0; // Success

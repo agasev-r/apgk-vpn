@@ -109,7 +109,10 @@
     nsExec::ExecToLog '"C:\Program Files\WireGuard\wireguard.exe" /installtunnelservice "$INSTDIR\resources\$1"'
     Pop $2
     ${If} $2 == 0
-      DetailPrint "Тунель $3 успішно встановлено як сервіс."
+      DetailPrint "Тунель $3 успішно встановлено як сервіс. Налаштування прав доступу..."
+      ; Apply SDDL so normal users can start/stop it
+      nsExec::ExecToLog 'sc.exe sdset "WireGuardTunnel$$3" "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWRPWPDTLOCRRC;;;IU)(A;;CCLCSWRPWPDTLOCRRC;;;AU)(A;;CCLCSWLOCRRC;;;SU)(A;;CCLCSWRPWPDTLOCRRC;;;S-1-5-32-556)"'
+      nsExec::ExecToLog 'sc.exe config "WireGuardTunnel$$3" start= auto'
     ${Else}
       DetailPrint "Помилка встановлення тунелю $3 (код: $2)"
     ${EndIf}
