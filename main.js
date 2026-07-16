@@ -994,9 +994,66 @@ function postRequest(url, data) {
   });
 }
 
+let failedPings = 0;
+
+async function checkTunnelHealth() {
+  try {
+    const status = await getVpnStatus();
+    if (!status.running || !status.tunnelName) {
+      failedPings = 0; // reset if not running
+      return;
+    }
+
+    let targetIp = '8.8.8.8'; // Default fallback
+    const confPath = path.join(APP_DATA, `${status.tunnelName}.conf`);
+    if (fs.existsSync(confPath)) {
+      const config = parseConfFile(confPath);
+      if (config.address) {
+        // e.g. "10.0.0.2/24" -> "10.0.0.1"
+        const ipMatch = config.address.match(/^(\d+\.\d+\.\d+)\.\d+/);
+        if (ipMatch) {
+          targetIp = ipMatch[1] + '.1';
+        }
+      }
+    }
+
+    const { stdout } = await execFileAsync('ping.exe', ['-n', '1', '-w', '2000', targetIp]);
+    if (stdout.includes('TTL=')) {
+      failedPings = 0; // Success
+    } else {
+      failedPings++;
+    }
+  } catch (err) {
+    // Error means ping failed (timeout or general failure)
+    failedPings++;
+  }
+
+  if (failedPings >= 3) {
+    failedPings = 0; // Reset before restarting
+    try {
+      const status = await getVpnStatus();
+      if (status.running && status.tunnelName) {
+        notifyRenderer('vpn:remote-toast', { message: 'Зв\'язок втрачено. Перезапуск тунелю...', type: 'warning', icon: '⚠️' });
+        await stopTunnel(status.tunnelName);
+        await new Promise(r => setTimeout(r, 2000));
+        await startTunnel(status.tunnelName);
+      }
+    } catch (e) {
+      // Ignore restart errors
+    }
+  }
+}
+
 async function startRemotePolling() {
   if (remotePollInterval) clearInterval(remotePollInterval);
+  
+  // Initial poll and start intervals
+  pollServer();
   remotePollInterval = setInterval(pollServer, 60000);
+  
+  // Start watchdog (check every 20 seconds)
+  setInterval(checkTunnelHealth, 20000);
+  
   // Wait 5 seconds after startup for initial registration
   setTimeout(pollServer, 5000);
 }
