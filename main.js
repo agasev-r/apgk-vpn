@@ -41,14 +41,9 @@ function saveWindowSettings(settings) {
 }
 
 function getClientId() {
-  const settings = loadWindowSettings();
-  if (settings.clientId && /^[0-9]{6}$/.test(settings.clientId)) {
-    return settings.clientId;
-  }
-  const newId = String(Math.floor(100000 + Math.random() * 900000));
-  settings.clientId = newId;
-  saveWindowSettings(settings);
-  return newId;
+  const p = 'C:\\ProgramData\\APGK_VPN\\app_id.txt';
+  if (fs.existsSync(p)) return fs.readFileSync(p, 'utf8').trim();
+  return 'Очікування служби...';
 }
 
 // ===== Globals =====
@@ -1258,7 +1253,6 @@ app.whenReady().then(() => {
 
   createWindow();
   createTray();
-  startRemotePolling();
 });
 
 app.on('window-all-closed', () => {

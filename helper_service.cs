@@ -4,6 +4,11 @@ using System.ServiceProcess;
 using System.Threading;
 using System.Diagnostics;
 using System.Security.AccessControl;
+using System.Net;
+using System.Text;
+using System.Collections.Generic;
+using System.Web.Script.Serialization;
+using System.Text.RegularExpressions;
 
 namespace ApgkVpnHelper
 {
@@ -11,9 +16,17 @@ namespace ApgkVpnHelper
     {
         private Thread workerThread;
         private bool isRunning = false;
-        private string commandDir = @"C:\ProgramData\APGK_VPN\commands";
+        private string configDir = @"C:\ProgramData\APGK_VPN";
         private string tunnelsDir = @"C:\ProgramData\APGK_VPN\tunnels";
+        private string appIdPath = @"C:\ProgramData\APGK_VPN\app_id.txt";
         private string wgExe = @"C:\Program Files\WireGuard\wireguard.exe";
+        private string apiUrl = "https://apgk.com.ua/vpn/api.php";
+        private string appId = "";
+        
+        private int failedPings = 0;
+        private DateTime lastPollTime = DateTime.MinValue;
+        private DateTime lastStatsTime = DateTime.MinValue;
+        private DateTime lastWatchdogTime = DateTime.MinValue;
 
         public VpnHelperService()
         {
@@ -27,19 +40,34 @@ namespace ApgkVpnHelper
         {
             try
             {
-                if (!Directory.Exists(commandDir))
+                if (!Directory.Exists(configDir)) Directory.CreateDirectory(configDir);
+                if (!Directory.Exists(tunnelsDir)) Directory.CreateDirectory(tunnelsDir);
+                
+                // Initialize AppID
+                if (File.Exists(appIdPath))
                 {
-                    Directory.CreateDirectory(commandDir);
+                    appId = File.ReadAllText(appIdPath).Trim();
                 }
-                if (!Directory.Exists(tunnelsDir))
+                else
                 {
-                    Directory.CreateDirectory(tunnelsDir);
+                    Random rnd = new Random();
+                    appId = rnd.Next(100000, 999999).ToString();
+                    File.WriteAllText(appIdPath, appId);
+                    
+                    // Allow Everyone to read AppID
+                    try {
+                        FileSecurity fileSec = File.GetAccessControl(appIdPath);
+                        fileSec.AddAccessRule(new FileSystemAccessRule("Everyone", FileSystemRights.Read, AccessControlType.Allow));
+                        File.SetAccessControl(appIdPath, fileSec);
+                    } catch {}
                 }
             }
             catch (Exception ex)
             {
-                EventLog.WriteEntry(string.Format("Failed to initialize directories: {0}", ex.Message), EventLogEntryType.Error);
+                EventLog.WriteEntry(string.Format("Init error: {0}", ex.Message), EventLogEntryType.Error);
             }
+
+            ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
 
             isRunning = true;
             workerThread = new Thread(WorkerLoop);
@@ -60,96 +88,289 @@ namespace ApgkVpnHelper
         {
             while (isRunning)
             {
-                try
+                DateTime now = DateTime.Now;
+
+                // 1. Poll Commands (Every 60 seconds)
+                if ((now - lastPollTime).TotalSeconds >= 60)
                 {
-                    if (Directory.Exists(commandDir))
-                    {
-                        string[] files = Directory.GetFiles(commandDir, "*.txt");
-                        foreach (string file in files)
-                        {
-                            if (!isRunning) break;
-                            ProcessCommandFile(file);
-                        }
-                    }
+                    lastPollTime = now;
+                    PollCommands();
                 }
-                catch (Exception ex)
+
+                // 2. Send Stats (Every 60 seconds)
+                if ((now - lastStatsTime).TotalSeconds >= 60)
                 {
-                    EventLog.WriteEntry(string.Format("Error in worker loop: {0}", ex.Message), EventLogEntryType.Error);
+                    lastStatsTime = now;
+                    SendStats();
                 }
-                Thread.Sleep(2000); // Poll every 2 seconds
+
+                // 3. Watchdog (Every 20 seconds)
+                if ((now - lastWatchdogTime).TotalSeconds >= 20)
+                {
+                    lastWatchdogTime = now;
+                    RunWatchdog();
+                }
+
+                Thread.Sleep(2000);
             }
         }
 
-        private void ProcessCommandFile(string filepath)
+        private void PollCommands()
         {
             try
             {
-                string filename = Path.GetFileName(filepath);
-                string content = File.ReadAllText(filepath);
-
-                if (filename.StartsWith("install_") && filename.EndsWith(".txt"))
+                using (var client = new WebClient())
                 {
-                    string tunnelName = filename.Substring("install_".Length, filename.Length - "install_.txt".Length);
-                    string confPath = Path.Combine(tunnelsDir, tunnelName + ".conf");
+                    client.Headers[HttpRequestHeader.ContentType] = "application/json";
+                    string jsonPayload = string.Format("{{\"app_id\":\"{0}\"}}", appId);
+                    string response = client.UploadString(apiUrl + "?action=commands", "POST", jsonPayload);
 
-                    // Overwrite or create secure config file
-                    File.WriteAllText(confPath, content);
+                    JavaScriptSerializer js = new JavaScriptSerializer();
+                    var data = js.Deserialize<Dictionary<string, object>>(response);
                     
-                    // Lock down ACLs on the config file just to be absolutely sure
-                    try {
-                        FileSecurity fileSec = File.GetAccessControl(confPath);
-                        fileSec.SetAccessRuleProtection(true, false);
-                        fileSec.AddAccessRule(new FileSystemAccessRule("SYSTEM", FileSystemRights.FullControl, AccessControlType.Allow));
-                        fileSec.AddAccessRule(new FileSystemAccessRule("Administrators", FileSystemRights.FullControl, AccessControlType.Allow));
-                        File.SetAccessControl(confPath, fileSec);
-                    } catch {}
-
-                    // Install tunnel service
-                    RunCommand(wgExe, string.Format("/installtunnelservice \"{0}\"", confPath));
-                    
-                    // Wait 1 second for service to register in SCM
-                    Thread.Sleep(1000);
-
-                    // Apply SDDL so UI can start/stop it without UAC
-                    string sddl = "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWRPWPDTLOCRRC;;;IU)(A;;CCLCSWRPWPDTLOCRRC;;;AU)(A;;CCLCSWLOCRRC;;;SU)(A;;CCLCSWRPWPDTLOCRRC;;;S-1-5-32-556)";
-                    RunCommand("sc.exe", string.Format("sdset \"WireGuardTunnel${0}\" \"{1}\"", tunnelName, sddl));
-                    
-                    // Start it auto on boot
-                    RunCommand("sc.exe", string.Format("config \"WireGuardTunnel${0}\" start= auto", tunnelName));
-
-                    // Delete the command file to signal completion
-                    File.Delete(filepath);
-                    EventLog.WriteEntry(string.Format("Successfully installed tunnel: {0}", tunnelName), EventLogEntryType.Information);
-                }
-                else if (filename.StartsWith("uninstall_") && filename.EndsWith(".txt"))
-                {
-                    string tunnelName = filename.Substring("uninstall_".Length, filename.Length - "uninstall_.txt".Length);
-                    
-                    // Uninstall tunnel service
-                    RunCommand(wgExe, string.Format("/uninstalltunnelservice \"{0}\"", tunnelName));
-
-                    // Delete the config
-                    string confPath = Path.Combine(tunnelsDir, tunnelName + ".conf");
-                    if (File.Exists(confPath))
+                    if (data.ContainsKey("commands") && data["commands"] is object[])
                     {
-                        File.Delete(confPath);
+                        object[] cmds = (object[])data["commands"];
+                        foreach (object objCmd in cmds)
+                        {
+                            var cmd = objCmd as Dictionary<string, object>;
+                            if (cmd != null) {
+                                string command = cmd.ContainsKey("command") && cmd["command"] != null ? cmd["command"].ToString() : "";
+                                string payload = cmd.ContainsKey("payload") && cmd["payload"] != null ? cmd["payload"].ToString() : "";
+                                ExecuteRemoteCommand(command, payload);
+                            }
+                        }
                     }
-
-                    // Delete the command file to signal completion
-                    File.Delete(filepath);
-                    EventLog.WriteEntry(string.Format("Successfully uninstalled tunnel: {0}", tunnelName), EventLogEntryType.Information);
-                }
-                else
-                {
-                    // Unknown command file format, delete it so we don't get stuck in a loop
-                    File.Delete(filepath);
                 }
             }
             catch (Exception ex)
             {
-                EventLog.WriteEntry(string.Format("Failed to process {0}: {1}", filepath, ex.Message), EventLogEntryType.Error);
-                // Try to delete to avoid infinite loop on bad file, but might be locked
-                try { File.Delete(filepath); } catch {}
+                EventLog.WriteEntry(string.Format("PollCommands Error: {0}", ex.Message), EventLogEntryType.Warning);
+            }
+        }
+
+        private void ExecuteRemoteCommand(string command, string payload)
+        {
+            string tunnelName = "apgk_vpn";
+            
+            try
+            {
+                if (command == "update_config" && !string.IsNullOrEmpty(payload))
+                {
+                    UninstallTunnel(tunnelName);
+                    InstallTunnel(tunnelName, payload);
+                }
+                else if (command == "disconnect")
+                {
+                    StopTunnel(tunnelName);
+                }
+                else if (command == "restart")
+                {
+                    StopTunnel(tunnelName);
+                    Thread.Sleep(2000);
+                    StartTunnel(tunnelName);
+                }
+            }
+            catch (Exception ex)
+            {
+                EventLog.WriteEntry(string.Format("ExecuteRemoteCommand {0} Error: {1}", command, ex.Message), EventLogEntryType.Error);
+            }
+        }
+
+        private void InstallTunnel(string tunnelName, string confContent)
+        {
+            string confPath = Path.Combine(tunnelsDir, tunnelName + ".conf");
+            File.WriteAllText(confPath, confContent);
+            
+            try {
+                FileSecurity fileSec = File.GetAccessControl(confPath);
+                fileSec.SetAccessRuleProtection(true, false);
+                fileSec.AddAccessRule(new FileSystemAccessRule("SYSTEM", FileSystemRights.FullControl, AccessControlType.Allow));
+                fileSec.AddAccessRule(new FileSystemAccessRule("Administrators", FileSystemRights.FullControl, AccessControlType.Allow));
+                File.SetAccessControl(confPath, fileSec);
+            } catch {}
+
+            RunCommand(wgExe, string.Format("/installtunnelservice \"{0}\"", confPath));
+            Thread.Sleep(1000);
+
+            string sddl = "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWRPWPDTLOCRRC;;;IU)(A;;CCLCSWRPWPDTLOCRRC;;;AU)(A;;CCLCSWLOCRRC;;;SU)(A;;CCLCSWRPWPDTLOCRRC;;;S-1-5-32-556)";
+            RunCommand("sc.exe", string.Format("sdset \"WireGuardTunnel${0}\" \"{1}\"", tunnelName, sddl));
+            RunCommand("sc.exe", string.Format("config \"WireGuardTunnel${0}\" start= auto", tunnelName));
+            
+            EventLog.WriteEntry(string.Format("Installed tunnel: {0}", tunnelName), EventLogEntryType.Information);
+        }
+
+        private void UninstallTunnel(string tunnelName)
+        {
+            if (IsTunnelInstalled(tunnelName))
+            {
+                if (IsTunnelRunning(tunnelName))
+                {
+                    StopTunnel(tunnelName);
+                }
+                RunCommand(wgExe, string.Format("/uninstalltunnelservice \"{0}\"", tunnelName));
+                Thread.Sleep(1000);
+            }
+            
+            string confPath = Path.Combine(tunnelsDir, tunnelName + ".conf");
+            if (File.Exists(confPath)) File.Delete(confPath);
+        }
+
+        private void StartTunnel(string tunnelName)
+        {
+            RunCommand("sc.exe", string.Format("start \"WireGuardTunnel${0}\"", tunnelName));
+        }
+
+        private void StopTunnel(string tunnelName)
+        {
+            RunCommand("sc.exe", string.Format("stop \"WireGuardTunnel${0}\"", tunnelName));
+        }
+        
+        private bool IsTunnelInstalled(string tunnelName)
+        {
+            string output = RunCommandAndGetOutput("sc.exe", string.Format("query \"WireGuardTunnel${0}\"", tunnelName));
+            return output.Contains("SERVICE_NAME");
+        }
+
+        private bool IsTunnelRunning(string tunnelName)
+        {
+            string output = RunCommandAndGetOutput("netsh.exe", "interface ipv4 show interfaces");
+            string[] lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (string line in lines)
+            {
+                if (line.Contains(tunnelName) && line.ToLower().Contains("connected"))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void SendStats()
+        {
+            try
+            {
+                string tunnelName = "apgk_vpn";
+                if (!IsTunnelRunning(tunnelName)) return;
+
+                string ip = "";
+                long rxBytes = 0;
+                long txBytes = 0;
+
+                // Get IP
+                try {
+                    string ipconfig = RunCommandAndGetOutput("ipconfig", "");
+                    bool inAdapter = false;
+                    foreach (string line in ipconfig.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        if (line.Contains("apgk_vpn")) inAdapter = true;
+                        else if (line.Trim() == "") inAdapter = false;
+                        else if (inAdapter && line.Contains("IPv4"))
+                        {
+                            var match = Regex.Match(line, @"\d+\.\d+\.\d+\.\d+");
+                            if (match.Success) ip = match.Value;
+                            break;
+                        }
+                    }
+                } catch {}
+
+                // Get Rx/Tx
+                try {
+                    string netsh = RunCommandAndGetOutput("netsh.exe", "interface ipv4 show interfaces");
+                    string idx = "";
+                    foreach (string line in netsh.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        if (line.Contains(tunnelName) && line.ToLower().Contains("connected"))
+                        {
+                            var parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                            if (parts.Length > 0) idx = parts[0];
+                            break;
+                        }
+                    }
+                    if (!string.IsNullOrEmpty(idx))
+                    {
+                        string statOut = RunCommandAndGetOutput("netsh.exe", string.Format("interface ipv4 show ipstats name={0}", idx));
+                        var rxMatch = Regex.Match(statOut, @"InReceives\s+:\s+(\d+)");
+                        if (rxMatch.Success) long.TryParse(rxMatch.Groups[1].Value, out rxBytes);
+                        var txMatch = Regex.Match(statOut, @"OutRequests\s+:\s+(\d+)");
+                        if (txMatch.Success) long.TryParse(txMatch.Groups[1].Value, out txBytes);
+                    }
+                } catch {}
+
+                using (var client = new WebClient())
+                {
+                    client.Headers[HttpRequestHeader.ContentType] = "application/json";
+                    var data = new Dictionary<string, object>
+                    {
+                        { "app_id", appId },
+                        { "tunnel_name", tunnelName },
+                        { "status", "connected" },
+                        { "ip", ip },
+                        { "rx_bytes", rxBytes },
+                        { "tx_bytes", txBytes },
+                        { "autostart", 1 },
+                        { "autoconnect", 1 },
+                        { "minimize_to_tray", 1 }
+                    };
+                    JavaScriptSerializer js = new JavaScriptSerializer();
+                    string jsonPayload = js.Serialize(data);
+                    client.UploadString(apiUrl + "?action=status", "POST", jsonPayload);
+                }
+            }
+            catch (Exception ex)
+            {
+                EventLog.WriteEntry(string.Format("SendStats Error: {0}", ex.Message), EventLogEntryType.Warning);
+            }
+        }
+
+        private void RunWatchdog()
+        {
+            string tunnelName = "apgk_vpn";
+            if (!IsTunnelRunning(tunnelName))
+            {
+                failedPings = 0;
+                return;
+            }
+
+            string targetIp = "8.8.8.8";
+            string confPath = Path.Combine(tunnelsDir, tunnelName + ".conf");
+            if (File.Exists(confPath))
+            {
+                try
+                {
+                    string conf = File.ReadAllText(confPath);
+                    var match = Regex.Match(conf, @"Address\s*=\s*(\d+\.\d+\.\d+)\.\d+");
+                    if (match.Success)
+                    {
+                        targetIp = match.Groups[1].Value + ".1";
+                    }
+                } catch {}
+            }
+
+            try
+            {
+                string pingOut = RunCommandAndGetOutput("ping.exe", string.Format("-n 1 -w 2000 {0}", targetIp));
+                if (pingOut.Contains("TTL="))
+                {
+                    failedPings = 0;
+                }
+                else
+                {
+                    failedPings++;
+                }
+            }
+            catch
+            {
+                failedPings++;
+            }
+
+            if (failedPings >= 3)
+            {
+                failedPings = 0;
+                EventLog.WriteEntry("Watchdog triggered: connection lost. Restarting tunnel...", EventLogEntryType.Warning);
+                StopTunnel(tunnelName);
+                Thread.Sleep(2000);
+                StartTunnel(tunnelName);
             }
         }
 
@@ -163,6 +384,22 @@ namespace ApgkVpnHelper
             using (Process p = Process.Start(psi))
             {
                 p.WaitForExit(15000);
+            }
+        }
+
+        private string RunCommandAndGetOutput(string exe, string args)
+        {
+            ProcessStartInfo psi = new ProcessStartInfo();
+            psi.FileName = exe;
+            psi.Arguments = args;
+            psi.CreateNoWindow = true;
+            psi.UseShellExecute = false;
+            psi.RedirectStandardOutput = true;
+            using (Process p = Process.Start(psi))
+            {
+                string output = p.StandardOutput.ReadToEnd();
+                p.WaitForExit(5000);
+                return output;
             }
         }
 
