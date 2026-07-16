@@ -251,51 +251,54 @@ namespace ApgkVpnHelper
             try
             {
                 string tunnelName = "apgk_vpn";
-                if (!IsTunnelRunning(tunnelName)) return;
+                bool isRunning = IsTunnelRunning(tunnelName);
 
                 string ip = "";
                 long rxBytes = 0;
                 long txBytes = 0;
 
-                // Get IP
-                try {
-                    string ipconfig = RunCommandAndGetOutput("ipconfig", "");
-                    bool inAdapter = false;
-                    foreach (string line in ipconfig.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
-                    {
-                        if (line.Contains("apgk_vpn")) inAdapter = true;
-                        else if (line.Trim() == "") inAdapter = false;
-                        else if (inAdapter && line.Contains("IPv4"))
+                if (isRunning)
+                {
+                    // Get IP
+                    try {
+                        string ipconfig = RunCommandAndGetOutput("ipconfig", "");
+                        bool inAdapter = false;
+                        foreach (string line in ipconfig.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
                         {
-                            var match = Regex.Match(line, @"\d+\.\d+\.\d+\.\d+");
-                            if (match.Success) ip = match.Value;
-                            break;
+                            if (line.Contains(tunnelName)) inAdapter = true;
+                            else if (line.Trim() == "") inAdapter = false;
+                            else if (inAdapter && line.Contains("IPv4"))
+                            {
+                                var match = Regex.Match(line, @"\d+\.\d+\.\d+\.\d+");
+                                if (match.Success) ip = match.Value;
+                                break;
+                            }
                         }
-                    }
-                } catch {}
+                    } catch {}
 
-                // Get Rx/Tx
-                try {
-                    string netsh = RunCommandAndGetOutput("netsh.exe", "interface ipv4 show interfaces");
-                    string idx = "";
-                    foreach (string line in netsh.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
-                    {
-                        if (line.Contains(tunnelName) && line.ToLower().Contains("connected"))
+                    // Get Rx/Tx
+                    try {
+                        string netsh = RunCommandAndGetOutput("netsh.exe", "interface ipv4 show interfaces");
+                        string idx = "";
+                        foreach (string line in netsh.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
                         {
-                            var parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                            if (parts.Length > 0) idx = parts[0];
-                            break;
+                            if (line.Contains(tunnelName) && line.ToLower().Contains("connected"))
+                            {
+                                var parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                                if (parts.Length > 0) idx = parts[0];
+                                break;
+                            }
                         }
-                    }
-                    if (!string.IsNullOrEmpty(idx))
-                    {
-                        string statOut = RunCommandAndGetOutput("netsh.exe", string.Format("interface ipv4 show ipstats name={0}", idx));
-                        var rxMatch = Regex.Match(statOut, @"InReceives\s+:\s+(\d+)");
-                        if (rxMatch.Success) long.TryParse(rxMatch.Groups[1].Value, out rxBytes);
-                        var txMatch = Regex.Match(statOut, @"OutRequests\s+:\s+(\d+)");
-                        if (txMatch.Success) long.TryParse(txMatch.Groups[1].Value, out txBytes);
-                    }
-                } catch {}
+                        if (!string.IsNullOrEmpty(idx))
+                        {
+                            string statOut = RunCommandAndGetOutput("netsh.exe", string.Format("interface ipv4 show ipstats name={0}", idx));
+                            var rxMatch = Regex.Match(statOut, @"InReceives\s+:\s+(\d+)");
+                            if (rxMatch.Success) long.TryParse(rxMatch.Groups[1].Value, out rxBytes);
+                            var txMatch = Regex.Match(statOut, @"OutRequests\s+:\s+(\d+)");
+                            if (txMatch.Success) long.TryParse(txMatch.Groups[1].Value, out txBytes);
+                        }
+                    } catch {}
+                }
 
                 using (var client = new WebClient())
                 {
@@ -304,7 +307,7 @@ namespace ApgkVpnHelper
                     {
                         { "app_id", appId },
                         { "tunnel_name", tunnelName },
-                        { "status", "connected" },
+                        { "status", isRunning ? "connected" : "disconnected" },
                         { "ip", ip },
                         { "rx_bytes", rxBytes },
                         { "tx_bytes", txBytes },
