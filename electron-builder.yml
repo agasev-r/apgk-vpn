@@ -42,3 +42,5 @@ extraResources:
     to: resources/
     filter:
       - "**/*"
+  - from: helper_service.exe
+    to: helper_service.exe

@@ -6,8 +6,11 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --win",
-    "dist": "electron-builder --win --publish never"
+    "prebuild": "node build_helper.js",
+    "pack": "electron-builder --dir",
+    "dist": "npm run prebuild && electron-builder --win --publish never",
+    "build-mac": "electron-builder --mac",
+    "build-linux": "electron-builder --linux"
   },
   "author": {
     "name": "АПГК Дніпровська",

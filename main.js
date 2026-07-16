@@ -485,40 +485,53 @@ async function stopTunnel(tunnelName) {
  */
 async function installTunnel(confPath) {
   const tunnelName = path.basename(confPath, '.conf');
+  
+  // Create command directory if somehow missing
+  const commandsDir = 'C:\\ProgramData\\APGK_VPN\\commands';
+  if (!fs.existsSync(commandsDir)) {
+    try { fs.mkdirSync(commandsDir, { recursive: true }); } catch {}
+  }
 
-  // Check if service already exists
+  // If service already exists, we must uninstall it first
   const exists = await tunnelServiceExists(tunnelName);
   if (exists) {
-    // Stop and uninstall first
-    try {
-      if (await isTunnelRunning(tunnelName)) {
-        await stopTunnel(tunnelName);
-      }
-      await runPowerShellElevated(`& '${WG_EXE}' /uninstalltunnelservice '${tunnelName}'`);
-      // Wait a moment for cleanup
-      await new Promise(r => setTimeout(r, 2000));
-    } catch { /* ignore */ }
+    if (await isTunnelRunning(tunnelName)) {
+      await stopTunnel(tunnelName);
+    }
+    
+    // Drop uninstall command
+    const uninstallFile = path.join(commandsDir, `uninstall_${tunnelName}.txt`);
+    fs.writeFileSync(uninstallFile, '', 'utf8');
+    
+    // Wait for helper to process uninstall
+    let waited = 0;
+    while (fs.existsSync(uninstallFile) && waited < 15000) {
+      await new Promise(r => setTimeout(r, 500));
+      waited += 500;
+    }
+    await new Promise(r => setTimeout(r, 1000));
   }
 
-  // Install tunnel service (requires admin)
-  try {
-    await runPowerShellElevated(`& '${WG_EXE}' /installtunnelservice '${confPath.replace(/'/g, "''")}'`);
-    // Wait for service to register
-    await new Promise(r => setTimeout(r, 2000));
+  // Drop install command with config content
+  const installFile = path.join(commandsDir, `install_${tunnelName}.txt`);
+  const confContent = fs.readFileSync(confPath, 'utf8');
+  fs.writeFileSync(installFile, confContent, 'utf8');
 
-    // Set service permissions to allow Interactive Users (IU), Authenticated Users (AU),
-    // and Network Configuration Operators (NO) to start/stop without UAC prompts.
-    // AU (S-1-5-11) covers ALL domain users, IU covers local interactive sessions.
-    const sddl = 'D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWRPWPDTLOCRRC;;;IU)(A;;CCLCSWRPWPDTLOCRRC;;;AU)(A;;CCLCSWLOCRRC;;;SU)(A;;CCLCSWRPWPDTLOCRRC;;;S-1-5-32-556)';
-    await runPowerShellElevated(`sc.exe sdset "WireGuardTunnel$${tunnelName}" "${sddl}"`);
-
-    // Set service startup to Automatic
-    await runPowerShellElevated(`sc.exe config "WireGuardTunnel$${tunnelName}" start= auto`);
-
-    return tunnelName;
-  } catch (err) {
-    throw new Error(`Не вдалося встановити тунель: ${err.message}`);
+  // Wait for helper to process install
+  let waited = 0;
+  while (fs.existsSync(installFile) && waited < 15000) {
+    await new Promise(r => setTimeout(r, 500));
+    waited += 500;
   }
+
+  // Check if service was successfully installed
+  await new Promise(r => setTimeout(r, 1000));
+  const newExists = await tunnelServiceExists(tunnelName);
+  if (!newExists) {
+    throw new Error(`Фонова служба не змогла встановити тунель ${tunnelName}. Перевірте чи працює служба APGK VPN Helper.`);
+  }
+
+  return tunnelName;
 }
 
 /**
