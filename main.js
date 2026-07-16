@@ -399,36 +399,48 @@ async function tunnelServiceExists(tunnelName) {
  */
 async function startTunnel(tunnelName) {
   const serviceName = `WireGuardTunnel$${tunnelName}`;
+  let started = false;
 
   // Method 1: sc.exe start (works when SDDL grants IU start rights)
   try {
     await execFileAsync('sc.exe', ['start', serviceName], { timeout: 15000 });
     logDebug(`startTunnel: sc.exe start ${serviceName} succeeded.`);
-    return true;
+    started = true;
   } catch (scErr) {
     logDebug(`startTunnel: sc.exe start failed: ${scErr.message}`);
   }
 
   // Method 2: net start (sometimes works when sc.exe doesn't, no UAC)
-  try {
-    await execFileAsync('net', ['start', serviceName], { timeout: 15000 });
-    logDebug(`startTunnel: net start ${serviceName} succeeded.`);
-    return true;
-  } catch (netErr) {
-    logDebug(`startTunnel: net start failed: ${netErr.message}`);
+  if (!started) {
+    try {
+      await execFileAsync('net', ['start', serviceName], { timeout: 15000 });
+      logDebug(`startTunnel: net start ${serviceName} succeeded.`);
+      started = true;
+    } catch (netErr) {
+      logDebug(`startTunnel: net start failed: ${netErr.message}`);
+    }
   }
 
   // Method 3: WireGuard CLI (wireguard.exe /tunnelservice) - as a last non-elevated attempt
-  try {
-    const confPath = getTunnelConfigPath(tunnelName);
-    if (confPath && fs.existsSync(confPath) && fs.existsSync(WG_EXE)) {
-      await execFileAsync(WG_EXE, ['/installtunnelservice', confPath], { timeout: 20000 });
-      logDebug(`startTunnel: wireguard.exe /installtunnelservice succeeded for ${tunnelName}.`);
-      await new Promise(r => setTimeout(r, 2000));
+  if (!started) {
+    try {
+      const confPath = getTunnelConfigPath(tunnelName);
+      if (confPath && fs.existsSync(confPath) && fs.existsSync(WG_EXE)) {
+        await execFileAsync(WG_EXE, ['/installtunnelservice', confPath], { timeout: 20000 });
+        logDebug(`startTunnel: wireguard.exe /installtunnelservice succeeded for ${tunnelName}.`);
+        started = true;
+      }
+    } catch (wgErr) {
+      logDebug(`startTunnel: wireguard.exe fallback failed: ${wgErr.message}`);
+    }
+  }
+
+  // Verify the service actually reached RUNNING state
+  for (let i = 0; i < 10; i++) {
+    if (await isTunnelRunning(tunnelName)) {
       return true;
     }
-  } catch (wgErr) {
-    logDebug(`startTunnel: wireguard.exe fallback failed: ${wgErr.message}`);
+    await new Promise(r => setTimeout(r, 500));
   }
 
   throw new Error(`Не вдалося запустити тунель "${tunnelName}". Переконайтеся, що WireGuard встановлено та сервіс має коректні права доступу (SDDL). Перезайдіть у Windows або перезавантажте ПК.`);
@@ -704,54 +716,36 @@ ipcMain.handle('vpn:disconnect', async (event, tunnelName) => {
 });
 
 async function getVpnStatus() {
-  return new Promise((resolve) => {
-    execFile('sc.exe', ['query', 'type=', 'service', 'state=', 'all'], { timeout: 8000 }, (err, stdout) => {
-      if (err || !stdout) {
-        resolve({ running: false, tunnels: [] });
-        return;
+  const tunnels = [];
+  try {
+    ensureAppDataDir();
+    const files = fs.readdirSync(APP_DATA);
+    for (const f of files) {
+      if (f.endsWith('.conf')) {
+        tunnels.push(path.basename(f, '.conf'));
       }
+    }
+  } catch (e) {
+    logDebug('Error reading APP_DATA for tunnels: ' + e.message);
+  }
 
-      const tunnels = [];
-      let runningTunnelName = null;
-      let isRunning = false;
+  let runningTunnelName = null;
+  let isRunning = false;
 
-      const blocks = stdout.split(/\r?\n\r?\n/);
-      for (const block of blocks) {
-        const lines = block.split(/\r?\n/);
-        let tunnelName = null;
-        let isRunningBlock = false;
+  for (const tunnel of tunnels) {
+    const running = await isTunnelRunning(tunnel);
+    if (running) {
+      runningTunnelName = tunnel;
+      isRunning = true;
+      break;
+    }
+  }
 
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed.includes('WireGuardTunnel$')) {
-            const match = trimmed.match(/WireGuardTunnel\$([A-Za-z0-9_-]+)/i);
-            if (match) {
-              tunnelName = match[1];
-            }
-          }
-          if (trimmed.toUpperCase().includes('RUNNING') || trimmed.includes(': 4') || trimmed.includes(' 4 ')) {
-            isRunningBlock = true;
-          }
-        }
-
-        if (tunnelName) {
-          if (!tunnels.includes(tunnelName)) {
-            tunnels.push(tunnelName);
-          }
-          if (isRunningBlock) {
-            runningTunnelName = tunnelName;
-            isRunning = true;
-          }
-        }
-      }
-
-      resolve({
-        running: isRunning,
-        tunnelName: runningTunnelName,
-        tunnels: tunnels
-      });
-    });
-  });
+  return {
+    running: isRunning,
+    tunnelName: runningTunnelName,
+    tunnels: tunnels
+  };
 }
 
 ipcMain.handle('vpn:status', async () => {
