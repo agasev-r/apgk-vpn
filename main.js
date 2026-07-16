@@ -41,14 +41,9 @@ function saveWindowSettings(settings) {
 }
 
 function getClientId() {
-  const settings = loadWindowSettings();
-  if (settings.clientId && /^[0-9]{6}$/.test(settings.clientId)) {
-    return settings.clientId;
-  }
-  const newId = String(Math.floor(100000 + Math.random() * 900000));
-  settings.clientId = newId;
-  saveWindowSettings(settings);
-  return newId;
+  const p = 'C:\\ProgramData\\APGK_VPN\\app_id.txt';
+  if (fs.existsSync(p)) return fs.readFileSync(p, 'utf8').trim();
+  return 'Очікування служби...';
 }
 
 // ===== Globals =====
@@ -404,19 +399,41 @@ async function tunnelServiceExists(tunnelName) {
  * Uses sc.exe (SDDL-permitted) → net start (fallback) → wireguard.exe CLI (last resort).
  */
 async function startTunnel(tunnelName) {
-  const commandsDir = 'C:\\ProgramData\\APGK_VPN\\commands';
-  if (!fs.existsSync(commandsDir)) {
-    try { fs.mkdirSync(commandsDir, { recursive: true }); } catch {}
-  }
-  
-  const startFile = path.join(commandsDir, `start_${tunnelName}.txt`);
-  fs.writeFileSync(startFile, '', 'utf8');
+  const serviceName = `WireGuardTunnel$${tunnelName}`;
+  let started = false;
 
-  // Wait for helper to process start command
-  let waited = 0;
-  while (fs.existsSync(startFile) && waited < 15000) {
-    await new Promise(r => setTimeout(r, 200));
-    waited += 200;
+  // Method 1: sc.exe start (works when SDDL grants IU start rights)
+  try {
+    await execFileAsync('sc.exe', ['start', serviceName], { timeout: 15000 });
+    logDebug(`startTunnel: sc.exe start ${serviceName} succeeded.`);
+    started = true;
+  } catch (scErr) {
+    logDebug(`startTunnel: sc.exe start failed: ${scErr.message}`);
+  }
+
+  // Method 2: net start (sometimes works when sc.exe doesn't, no UAC)
+  if (!started) {
+    try {
+      await execFileAsync('net', ['start', serviceName], { timeout: 15000 });
+      logDebug(`startTunnel: net start ${serviceName} succeeded.`);
+      started = true;
+    } catch (netErr) {
+      logDebug(`startTunnel: net start failed: ${netErr.message}`);
+    }
+  }
+
+  // Method 3: WireGuard CLI (wireguard.exe /tunnelservice) - as a last non-elevated attempt
+  if (!started) {
+    try {
+      const confPath = getTunnelConfigPath(tunnelName);
+      if (confPath && fs.existsSync(confPath) && fs.existsSync(WG_EXE)) {
+        await execFileAsync(WG_EXE, ['/installtunnelservice', confPath], { timeout: 20000 });
+        logDebug(`startTunnel: wireguard.exe /installtunnelservice succeeded for ${tunnelName}.`);
+        started = true;
+      }
+    } catch (wgErr) {
+      logDebug(`startTunnel: wireguard.exe fallback failed: ${wgErr.message}`);
+    }
   }
 
   // Verify the service actually reached RUNNING state
@@ -427,7 +444,7 @@ async function startTunnel(tunnelName) {
     await new Promise(r => setTimeout(r, 500));
   }
 
-  throw new Error(`Не вдалося запустити тунель "${tunnelName}" через службу.`);
+  throw new Error(`Не вдалося запустити тунель "${tunnelName}". Переконайтеся, що WireGuard встановлено та сервіс має коректні права доступу (SDDL). Перезайдіть у Windows або перезавантажте ПК.`);
 }
 
 /**
@@ -435,22 +452,27 @@ async function startTunnel(tunnelName) {
  * Uses sc.exe (SDDL-permitted) → net stop (fallback).
  */
 async function stopTunnel(tunnelName) {
-  const commandsDir = 'C:\\ProgramData\\APGK_VPN\\commands';
-  if (!fs.existsSync(commandsDir)) {
-    try { fs.mkdirSync(commandsDir, { recursive: true }); } catch {}
+  const serviceName = `WireGuardTunnel$${tunnelName}`;
+
+  // Method 1: sc.exe stop
+  try {
+    await execFileAsync('sc.exe', ['stop', serviceName], { timeout: 15000 });
+    logDebug(`stopTunnel: sc.exe stop ${serviceName} succeeded.`);
+    return true;
+  } catch (scErr) {
+    logDebug(`stopTunnel: sc.exe stop failed: ${scErr.message}`);
   }
 
-  const stopFile = path.join(commandsDir, `stop_${tunnelName}.txt`);
-  fs.writeFileSync(stopFile, '', 'utf8');
-
-  // Wait for helper to process stop command
-  let waited = 0;
-  while (fs.existsSync(stopFile) && waited < 15000) {
-    await new Promise(r => setTimeout(r, 200));
-    waited += 200;
+  // Method 2: net stop
+  try {
+    await execFileAsync('net', ['stop', serviceName], { timeout: 15000 });
+    logDebug(`stopTunnel: net stop ${serviceName} succeeded.`);
+    return true;
+  } catch (netErr) {
+    logDebug(`stopTunnel: net stop failed: ${netErr.message}`);
   }
 
-  return true;
+  throw new Error(`Не вдалося зупинити тунель "${tunnelName}". Перезайдіть у Windows або перезавантажте ПК.`);
 }
 
 /**
@@ -977,21 +999,12 @@ async function checkTunnelHealth() {
       return;
     }
 
-    let targetIp = '10.9.8.1'; // Default fallback based on standard subnet
-    const programDataConf = path.join('C:\\ProgramData\\APGK_VPN\\tunnels', `${status.tunnelName}.conf`);
-    const appDataConf = path.join(APP_DATA, `${status.tunnelName}.conf`);
-    
-    let confPath = null;
-    if (fs.existsSync(programDataConf)) {
-      confPath = programDataConf;
-    } else if (fs.existsSync(appDataConf)) {
-      confPath = appDataConf;
-    }
-
-    if (confPath) {
+    let targetIp = '8.8.8.8'; // Default fallback
+    const confPath = path.join(APP_DATA, `${status.tunnelName}.conf`);
+    if (fs.existsSync(confPath)) {
       const config = parseConfFile(confPath);
-      if (config && config.address) {
-        // e.g. "10.9.8.27/24" -> "10.9.8.1"
+      if (config.address) {
+        // e.g. "10.0.0.2/24" -> "10.0.0.1"
         const ipMatch = config.address.match(/^(\d+\.\d+\.\d+)\.\d+/);
         if (ipMatch) {
           targetIp = ipMatch[1] + '.1';
@@ -999,7 +1012,6 @@ async function checkTunnelHealth() {
       }
     }
 
-    logDebug(`Watchdog: pinging gateway ${targetIp} to check tunnel health`);
     const { stdout } = await execFileAsync('ping.exe', ['-n', '1', '-w', '2000', targetIp]);
     if (stdout.includes('TTL=')) {
       failedPings = 0; // Success
@@ -1241,7 +1253,6 @@ app.whenReady().then(() => {
 
   createWindow();
   createTray();
-  startRemotePolling();
 });
 
 app.on('window-all-closed', () => {
