@@ -139,6 +139,20 @@ namespace ApgkVpnHelper
                     File.Delete(filepath);
                     EventLog.WriteEntry(string.Format("Successfully uninstalled tunnel: {0}", tunnelName), EventLogEntryType.Information);
                 }
+                else if (filename.StartsWith("start_") && filename.EndsWith(".txt"))
+                {
+                    string tunnelName = filename.Substring("start_".Length, filename.Length - "start_.txt".Length);
+                    StartTunnel(tunnelName);
+                    File.Delete(filepath);
+                    EventLog.WriteEntry(string.Format("Successfully started tunnel service: {0}", tunnelName), EventLogEntryType.Information);
+                }
+                else if (filename.StartsWith("stop_") && filename.EndsWith(".txt"))
+                {
+                    string tunnelName = filename.Substring("stop_".Length, filename.Length - "stop_.txt".Length);
+                    StopTunnel(tunnelName);
+                    File.Delete(filepath);
+                    EventLog.WriteEntry(string.Format("Successfully stopped tunnel service: {0}", tunnelName), EventLogEntryType.Information);
+                }
                 else
                 {
                     // Unknown command file format, delete it so we don't get stuck in a loop
@@ -151,6 +165,16 @@ namespace ApgkVpnHelper
                 // Try to delete to avoid infinite loop on bad file, but might be locked
                 try { File.Delete(filepath); } catch {}
             }
+        }
+
+        private void StartTunnel(string tunnelName)
+        {
+            RunCommand("sc.exe", string.Format("start \"WireGuardTunnel${0}\"", tunnelName));
+        }
+
+        private void StopTunnel(string tunnelName)
+        {
+            RunCommand("sc.exe", string.Format("stop \"WireGuardTunnel${0}\"", tunnelName));
         }
 
         private void RunCommand(string exe, string args)
