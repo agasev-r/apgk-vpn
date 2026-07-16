@@ -333,18 +333,24 @@ try {
 }
 
 /**
- * Check if a WireGuard tunnel service is running using sc.exe.
+ * Check if a WireGuard tunnel is running by checking its network interface.
+ * Bypasses Service Control Manager permissions (sc.exe) entirely.
  */
 async function isTunnelRunning(tunnelName) {
   return new Promise((resolve) => {
-    const serviceName = `WireGuardTunnel$${tunnelName}`;
-    execFile('sc.exe', ['query', serviceName], { timeout: 5000 }, (err, stdout) => {
+    execFile('netsh.exe', ['interface', 'ipv4', 'show', 'interfaces'], { timeout: 5000 }, (err, stdout) => {
       if (err || !stdout) {
         resolve(false);
         return;
       }
-      const upper = stdout.toUpperCase();
-      resolve(upper.includes('RUNNING') || upper.includes(': 4') || upper.includes(' 4 '));
+      const lines = stdout.split(/\r?\n/);
+      for (const line of lines) {
+        if (line.includes(tunnelName) && line.toLowerCase().includes('connected')) {
+          resolve(true);
+          return;
+        }
+      }
+      resolve(false);
     });
   });
 }
@@ -377,18 +383,18 @@ async function checkNetworkReady() {
 }
 
 /**
- * Check if a WireGuard tunnel service exists using sc.exe.
+ * Check if a WireGuard tunnel service exists using Registry (bypasses sc.exe permissions).
  */
 async function tunnelServiceExists(tunnelName) {
   return new Promise((resolve) => {
     const serviceName = `WireGuardTunnel$${tunnelName}`;
-    execFile('sc.exe', ['query', serviceName], { timeout: 5000 }, (err, stdout) => {
-      if (err || !stdout) {
+    const regKey = `HKLM\\SYSTEM\\CurrentControlSet\\Services\\${serviceName}`;
+    execFile('reg.exe', ['query', regKey], { timeout: 5000 }, (err, stdout) => {
+      if (err) {
         resolve(false);
         return;
       }
-      // If service exists, output will contain its service name
-      resolve(stdout.toLowerCase().includes(serviceName.toLowerCase()));
+      resolve(true);
     });
   });
 }
