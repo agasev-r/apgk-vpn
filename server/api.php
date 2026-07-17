@@ -90,6 +90,34 @@ if ($hasPendingSettingsCmd && $oldClient) {
 $rx = isset($data['rx_bytes']) ? (float)$data['rx_bytes'] : 0;
 $tx = isset($data['tx_bytes']) ? (float)$data['tx_bytes'] : 0;
 
+// Log PC Turn On event (pc_on)
+try {
+    $isOffline = true;
+    if ($oldClient) {
+        $timeDiff = time() - strtotime($oldClient['last_seen']);
+        if ($timeDiff <= 180) { // 3 minutes
+            $isOffline = false;
+        }
+    }
+    
+    if ($isOffline) {
+        // Double check that the last PC status event wasn't already pc_on
+        $stmtLast = $pdo->prepare("
+            SELECT `event_type` FROM `connection_history` 
+            WHERE `client_id` = ? AND `event_type` IN ('pc_on', 'pc_off') 
+            ORDER BY `created_at` DESC, `id` DESC LIMIT 1
+        ");
+        $stmtLast->execute([$clientId]);
+        $lastEvent = $stmtLast->fetchColumn();
+        if ($lastEvent !== 'pc_on') {
+            $stmtLogPc = $pdo->prepare("INSERT INTO `connection_history` (`client_id`, `event_type`) VALUES (?, 'pc_on')");
+            $stmtLogPc->execute([$clientId]);
+        }
+    }
+} catch (PDOException $e) {
+    // Log pc_on failure should not block the request
+}
+
 // Log status transition to connection_history
 try {
     $oldStatus = $oldClient ? $oldClient['status'] : 'disconnected';

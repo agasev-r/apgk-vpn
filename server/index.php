@@ -596,6 +596,11 @@ if (isset($_SESSION['admin_logged'])) {
             color: var(--success);
         }
 
+        .status-ready {
+            background: rgba(0, 122, 255, 0.15);
+            color: var(--primary);
+        }
+
         .status-disconnected {
             background: rgba(142, 155, 178, 0.15);
             color: var(--text-muted);
@@ -864,11 +869,9 @@ if (isset($_SESSION['admin_logged'])) {
                                     <td><?= date('d.m.Y H:i:s', strtotime($client['last_seen'])) ?></td>
                                     <td>
                                         <?php if ($isOffline): ?>
-                                            <span class="status-badge status-offline">Offline</span>
+                                            <span class="status-badge status-offline">Вимкнено</span>
                                         <?php else: ?>
-                                            <span class="status-badge <?= $client['status'] === 'connected' ? 'status-connected' : 'status-disconnected' ?>">
-                                                <?= $client['status'] === 'connected' ? 'Connected' : 'Ready' ?>
-                                            </span>
+                                            <span class="status-badge status-connected">Увімкнено</span>
                                         <?php endif; ?>
                                     </td>
                                     <td class="actions-cell">
@@ -898,7 +901,8 @@ if (isset($_SESSION['admin_logged'])) {
                             <th>IP адреса</th>
                             <th>Останній зв'язок</th>
                             <th>Трафік (Завантажено / Віддано)</th>
-                            <th>Статус</th>
+                            <th>Статус ПК</th>
+                            <th>Статус VPN</th>
                             <th>Керування</th>
                         </tr>
                     </thead>
@@ -908,7 +912,7 @@ if (isset($_SESSION['admin_logged'])) {
                         if ($stmt->rowCount() === 0):
                         ?>
                             <tr>
-                                <td colspan="9" style="text-align: center; color: var(--text-muted); padding: 30px;">Немає зареєстрованих клієнтів.</td>
+                                <td colspan="10" style="text-align: center; color: var(--text-muted); padding: 30px;">Немає зареєстрованих клієнтів.</td>
                             </tr>
                         <?php
                         endif;
@@ -933,11 +937,20 @@ if (isset($_SESSION['admin_logged'])) {
                                 </td>
                                 <td>
                                     <?php if ($isOffline): ?>
-                                        <span class="status-badge status-offline">Offline</span>
+                                        <span class="status-badge status-offline">Вимкнено</span>
                                     <?php else: ?>
-                                        <span class="status-badge <?= $client['status'] === 'connected' ? 'status-connected' : 'status-disconnected' ?>">
-                                            <?= $client['status'] === 'connected' ? 'Connected' : 'Ready' ?>
-                                        </span>
+                                        <span class="status-badge status-connected">Увімкнено</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php if ($isOffline): ?>
+                                        <span class="status-badge status-disconnected" style="background: rgba(142, 155, 178, 0.08);">—</span>
+                                    <?php else: ?>
+                                        <?php if ($client['status'] === 'connected'): ?>
+                                            <span class="status-badge status-connected">Підключено</span>
+                                        <?php else: ?>
+                                            <span class="status-badge status-disconnected">Відключено</span>
+                                        <?php endif; ?>
                                     <?php endif; ?>
                                 </td>
                                 <td class="actions-cell">
@@ -1352,8 +1365,21 @@ if (isset($_SESSION['admin_logged'])) {
                     connBody.innerHTML = data.connections.map(c => {
                         const date = new Date(c.created_at);
                         const dateStr = date.toLocaleDateString('uk-UA', {day: '2-digit', month: '2-digit'}) + ' ' + date.toLocaleTimeString('uk-UA', {hour: '2-digit', minute: '2-digit'});
-                        const badgeClass = c.event_type === 'connect' ? 'status-connected' : 'status-disconnected';
-                        const badgeText = c.event_type === 'connect' ? 'Connect' : 'Disconnect';
+                        let badgeClass = 'status-disconnected';
+                        let badgeText = c.event_type;
+                        if (c.event_type === 'connect') {
+                            badgeClass = 'status-connected';
+                            badgeText = 'VPN: Підключено';
+                        } else if (c.event_type === 'disconnect') {
+                            badgeClass = 'status-disconnected';
+                            badgeText = 'VPN: Відключено';
+                        } else if (c.event_type === 'pc_on') {
+                            badgeClass = 'status-ready';
+                            badgeText = 'ПК: Увімкнено';
+                        } else if (c.event_type === 'pc_off') {
+                            badgeClass = 'status-offline';
+                            badgeText = 'ПК: Вимкнено';
+                        }
                         return `<tr>
                             <td style="padding: 6px 10px;">${dateStr}</td>
                             <td style="padding: 6px 10px;"><span class="status-badge ${badgeClass}" style="font-size: 10px; padding: 2px 6px;">${badgeText}</span></td>
