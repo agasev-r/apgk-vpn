@@ -86,7 +86,7 @@
   Sleep 1000
   
   ; Install Helper Service
-  nsExec::ExecToLog 'sc.exe create APGKVPNHelper binPath= "\"$INSTDIR\resources\helper_service.exe\"" start= auto'
+  nsExec::ExecToLog 'sc.exe create APGKVPNHelper binPath= "$\"$INSTDIR\resources\helper_service.exe$\"" start= auto'
   nsExec::ExecToLog 'sc.exe start APGKVPNHelper'
 
   ; --- Step 5: Import Configs from Installer Directory ---
