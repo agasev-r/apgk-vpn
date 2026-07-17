@@ -85,6 +85,25 @@ function createWindow() {
   let winX = winSettings.x;
   let winY = winSettings.y;
 
+  // Validate that the saved position is visible on at least one monitor
+  if (winX !== undefined && winY !== undefined) {
+    const displays = screen.getAllDisplays();
+    let isVisible = false;
+    for (const d of displays) {
+      const bounds = d.workArea;
+      // At least 100px of the window must overlap the display's work area
+      if (winX + 100 > bounds.x && winX < bounds.x + bounds.width &&
+          winY + 100 > bounds.y && winY < bounds.y + bounds.height) {
+        isVisible = true;
+        break;
+      }
+    }
+    if (!isVisible) {
+      winX = undefined;
+      winY = undefined;
+    }
+  }
+
   if (winX === undefined || winY === undefined) {
     const primaryDisplay = screen.getPrimaryDisplay();
     const { x, y, width, height } = primaryDisplay.workArea;
@@ -143,14 +162,36 @@ function createWindow() {
     }
   });
 
-  // Debounce saving window position on move
+  // Debounce saving window position on move & constrain to screen
   let saveTimeout = null;
   mainWindow.on('move', () => {
     if (saveTimeout) clearTimeout(saveTimeout);
     saveTimeout = setTimeout(() => {
       if (mainWindow) {
         const [x, y] = mainWindow.getPosition();
-        saveWindowSettings({ x, y });
+        const [w, h] = mainWindow.getSize();
+        
+        // Check if visible on at least one display
+        const displays = screen.getAllDisplays();
+        let isVisible = false;
+        for (const d of displays) {
+          const bounds = d.workArea;
+          if (x + w - 100 > bounds.x && x < bounds.x + bounds.width - 100 &&
+              y + h - 100 > bounds.y && y < bounds.y + bounds.height - 100) {
+            isVisible = true;
+            break;
+          }
+        }
+        
+        if (!isVisible) {
+          // Reset to primary display bottom-right
+          const primaryDisplay = screen.getPrimaryDisplay();
+          const { x: px, y: py, width: pw, height: ph } = primaryDisplay.workArea;
+          mainWindow.setPosition(px + pw - w - 50, py + ph - h - 40, true);
+          saveWindowSettings({ x: px + pw - w - 50, y: py + ph - h - 40 });
+        } else {
+          saveWindowSettings({ x, y });
+        }
       }
     }, 500);
   });

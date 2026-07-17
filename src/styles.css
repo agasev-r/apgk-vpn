@@ -886,5 +886,18 @@ body::before {
   .stat-icon svg { width: 11px; height: 11px; }
   .tunnel-bar { margin-top: 6px; padding: 6px 10px; }
   .bottom-actions { padding-top: 6px; }
+  .developer-credit { margin-top: 4px; font-size: 8px; }
 }
+
+.developer-credit {
+  font-size: 9px;
+  color: var(--text-tertiary);
+  margin-top: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+  text-align: center;
+  width: 100%;
+}
+
 
