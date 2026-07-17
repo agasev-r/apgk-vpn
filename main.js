@@ -99,13 +99,17 @@ function createWindow() {
 
   mainWindow = new BrowserWindow({
     width: 360,
-    height: 470,
+    height: 480,
+    minWidth: 340,
+    minHeight: 470,
+    maxWidth: 500,
+    maxHeight: 650,
     x: winX,
     y: winY,
     frame: false,
     transparent: false,
-    backgroundColor: '#0a0e1a',
-    resizable: false,
+    backgroundColor: '#f5f5f7',
+    resizable: true,
     show: false,
     icon: getAppIcon(),
     webPreferences: {

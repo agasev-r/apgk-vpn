@@ -1,37 +1,29 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none">
   <defs>
+    <!-- Modern iOS Blue-Teal Gradient -->
     <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#00d4aa;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#667eea;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#007aff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#30b0c7;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="lockGrad" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" style="stop-color:#ffffff;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#e0e0e0;stop-opacity:0.9" />
+      <stop offset="100%" style="stop-color:#e5e5ea;stop-opacity:1" />
     </linearGradient>
-    <filter id="glow">
-      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
-      <feMerge>
-        <feMergeNode in="coloredBlur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#007aff" flood-opacity="0.25"/>
     </filter>
   </defs>
-  <!-- Shield shape -->
+  <!-- Main Shield -->
   <path d="M100 15 L175 50 L175 110 C175 150 140 180 100 195 C60 180 25 150 25 110 L25 50 Z" 
-        fill="url(#shieldGrad)" opacity="0.9" filter="url(#glow)"/>
-  <!-- Inner shield -->
+        fill="url(#shieldGrad)" filter="url(#shadow)"/>
+  <!-- Inner Glass Shield -->
   <path d="M100 30 L162 58 L162 108 C162 142 132 168 100 180 C68 168 38 142 38 108 L38 58 Z" 
-        fill="rgba(10,14,27,0.7)"/>
-  <!-- Lock icon -->
-  <rect x="82" y="95" width="36" height="30" rx="4" fill="url(#lockGrad)" opacity="0.9"/>
-  <path d="M88 95 L88 82 C88 72 94 65 100 65 C106 65 112 72 112 82 L112 95" 
-        stroke="url(#lockGrad)" stroke-width="5" fill="none" stroke-linecap="round" opacity="0.9"/>
-  <!-- Key hole -->
-  <circle cx="100" cy="107" r="4" fill="#0a0e1a"/>
-  <rect x="98.5" y="109" width="3" height="7" rx="1" fill="#0a0e1a"/>
-  <!-- Wheat accents -->
-  <ellipse cx="62" cy="75" rx="3" ry="8" fill="#FFD700" opacity="0.6" transform="rotate(-30 62 75)"/>
-  <ellipse cx="58" cy="82" rx="2.5" ry="7" fill="#FFD700" opacity="0.5" transform="rotate(-35 58 82)"/>
-  <ellipse cx="138" cy="75" rx="3" ry="8" fill="#FFD700" opacity="0.6" transform="rotate(30 138 75)"/>
-  <ellipse cx="142" cy="82" rx="2.5" ry="7" fill="#FFD700" opacity="0.5" transform="rotate(35 142 82)"/>
+        fill="rgba(255, 255, 255, 0.25)"/>
+  <!-- Lock Icon -->
+  <rect x="80" y="92" width="40" height="34" rx="8" fill="url(#lockGrad)" />
+  <path d="M87 92 L87 78 C87 69 93 62 100 62 C107 62 113 69 113 78 L113 92" 
+        stroke="url(#lockGrad)" stroke-width="6" fill="none" stroke-linecap="round"/>
+  <!-- Key Hole (Apple Gray) -->
+  <circle cx="100" cy="105" r="4.5" fill="#1d1d1f"/>
+  <path d="M98 107 L102 107 L103 118 L97 118 Z" fill="#1d1d1f"/>
 </svg>
