@@ -126,11 +126,6 @@
 
   ; Done
   DetailPrint "Установка APGK VPN завершена успішно!"
-  ${If} $4 > 0
-    MessageBox MB_OK|MB_ICONINFORMATION "Установку APGK VPN завершено! Знайдено та налаштовано $4 VPN профіль(ів). Запустіть додаток для підключення."
-  ${Else}
-    MessageBox MB_OK|MB_ICONINFORMATION "Установку APGK VPN завершено! Для підключення імпортуйте файл конфігурації (.conf) через додаток."
-  ${EndIf}
 
 
 !macroend
