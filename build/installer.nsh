@@ -139,14 +139,18 @@
 !macro customUnInstall
   DetailPrint "Видалення APGK VPN..."
   
-  ; Stop and remove all WireGuard tunnel services that we created
-  DetailPrint "Зупинка тунельних сервісів..."
-  nsExec::ExecToLog 'powershell -NoProfile -Command "Get-Service | Where-Object { $$_.Name -like ''WireGuardTunnel$$*'' } | ForEach-Object { Stop-Service $$_.Name -Force -ErrorAction SilentlyContinue }"'
+  ; Stop and completely delete all WireGuard tunnel services that we created
+  DetailPrint "Видалення тунельних сервісів..."
+  nsExec::ExecToLog 'powershell -NoProfile -Command "Get-Service | Where-Object { $$_.Name -like ''WireGuardTunnel$$*'' } | ForEach-Object { Stop-Service $$_.Name -Force -ErrorAction SilentlyContinue; sc.exe delete $$_.Name }"'
   
   DetailPrint "Видалення фонової служби..."
   nsExec::ExecToLog 'sc.exe stop APGKVPNHelper'
   Sleep 1000
   nsExec::ExecToLog 'sc.exe delete APGKVPNHelper'
+
+  ; Clean up AppData / ProgramData directories
+  DetailPrint "Очищення файлів конфігурації..."
+  RMDir /r "C:\ProgramData\APGK_VPN"
 
   ; Remove our registry keys
   DeleteRegValue HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Run" "APGK_VPN"
