@@ -60,8 +60,12 @@ function ensureAppDataDir() {
 
 // ===== Helper to find tunnel configuration file path =====
 function getTunnelConfigPath(tunnelName) {
-  // Try User Data first
-  let confPath = path.join(APP_DATA, `${tunnelName}.conf`);
+  // Try ProgramData first (used by C# Helper)
+  let confPath = path.join('C:\\ProgramData\\APGK_VPN\\tunnels', `${tunnelName}.conf`);
+  if (fs.existsSync(confPath)) return confPath;
+
+  // Try User Data next
+  confPath = path.join(APP_DATA, `${tunnelName}.conf`);
   if (fs.existsSync(confPath)) return confPath;
 
   // Try app resources
@@ -378,19 +382,16 @@ try {
  */
 async function isTunnelRunning(tunnelName) {
   return new Promise((resolve) => {
-    execFile('netsh.exe', ['interface', 'ipv4', 'show', 'interfaces'], { timeout: 5000 }, (err, stdout) => {
+    execFile('sc.exe', ['query', `WireGuardTunnel$${tunnelName}`], { timeout: 5000 }, (err, stdout) => {
       if (err || !stdout) {
         resolve(false);
         return;
       }
-      const lines = stdout.split(/\r?\n/);
-      for (const line of lines) {
-        if (line.includes(tunnelName) && line.toLowerCase().includes('connected')) {
-          resolve(true);
-          return;
-        }
+      if (stdout.includes('RUNNING') || stdout.includes('4  RUNNING')) {
+        resolve(true);
+      } else {
+        resolve(false);
       }
-      resolve(false);
     });
   });
 }
@@ -775,18 +776,35 @@ ipcMain.handle('vpn:disconnect', async (event, tunnelName) => {
 });
 
 async function getVpnStatus() {
-  const tunnels = [];
+  const tunnelsSet = new Set();
+  
+  // 1. Check ProgramData (used by C# Helper)
+  try {
+    const pdTunnels = 'C:\\ProgramData\\APGK_VPN\\tunnels';
+    if (fs.existsSync(pdTunnels)) {
+      const pdFiles = fs.readdirSync(pdTunnels);
+      for (const f of pdFiles) {
+        if (f.endsWith('.conf')) {
+          tunnelsSet.add(path.basename(f, '.conf'));
+        }
+      }
+    }
+  } catch (e) {}
+
+  // 2. Check APP_DATA
   try {
     ensureAppDataDir();
     const files = fs.readdirSync(APP_DATA);
     for (const f of files) {
       if (f.endsWith('.conf')) {
-        tunnels.push(path.basename(f, '.conf'));
+        tunnelsSet.add(path.basename(f, '.conf'));
       }
     }
   } catch (e) {
     logDebug('Error reading APP_DATA for tunnels: ' + e.message);
   }
+
+  const tunnels = Array.from(tunnelsSet);
 
   let runningTunnelName = null;
   let isRunning = false;
@@ -1034,239 +1052,7 @@ function postRequest(url, data) {
   });
 }
 
-let failedPings = 0;
-
-async function checkTunnelHealth() {
-  try {
-    const status = await getVpnStatus();
-    if (!status.running || !status.tunnelName) {
-      failedPings = 0; // reset if not running
-      return;
-    }
-
-    let targetIp = '8.8.8.8'; // Default fallback
-    const confPath = path.join(APP_DATA, `${status.tunnelName}.conf`);
-    if (fs.existsSync(confPath)) {
-      const config = parseConfFile(confPath);
-      if (config.address) {
-        // e.g. "10.0.0.2/24" -> "10.0.0.1"
-        const ipMatch = config.address.match(/^(\d+\.\d+\.\d+)\.\d+/);
-        if (ipMatch) {
-          targetIp = ipMatch[1] + '.1';
-        }
-      }
-    }
-
-    const { stdout } = await execFileAsync('ping.exe', ['-n', '1', '-w', '2000', targetIp]);
-    if (stdout.includes('TTL=')) {
-      failedPings = 0; // Success
-    } else {
-      failedPings++;
-    }
-  } catch (err) {
-    // Error means ping failed (timeout or general failure)
-    failedPings++;
-  }
-
-  if (failedPings >= 3) {
-    failedPings = 0; // Reset before restarting
-    try {
-      const status = await getVpnStatus();
-      if (status.running && status.tunnelName) {
-        notifyRenderer('vpn:remote-toast', { message: 'Зв\'язок втрачено. Перезапуск тунелю...', type: 'warning', icon: '⚠️' });
-        await stopTunnel(status.tunnelName);
-        await new Promise(r => setTimeout(r, 2000));
-        await startTunnel(status.tunnelName);
-      }
-    } catch (e) {
-      // Ignore restart errors
-    }
-  }
-}
-
-async function startRemotePolling() {
-  if (remotePollInterval) clearInterval(remotePollInterval);
-  
-  // Initial poll and start intervals
-  pollServer();
-  remotePollInterval = setInterval(pollServer, 60000);
-  
-  // Start watchdog (check every 20 seconds)
-  setInterval(checkTunnelHealth, 20000);
-  
-  // Wait 5 seconds after startup for initial registration
-  setTimeout(pollServer, 5000);
-}
-
-async function pollServer() {
-  try {
-    const clientId = getClientId();
-    const settings = loadWindowSettings();
-    
-    // Check status
-    const status = await getVpnStatus();
-    let rxBytes = 0;
-    let txBytes = 0;
-    let ip = '';
-    
-    if (status.running && status.tunnelName) {
-      const stats = await getWgStats(status.tunnelName);
-      if (stats) {
-        rxBytes = stats.rxBytes;
-        txBytes = stats.txBytes;
-      }
-      
-      const config = await getTunnelConfigPath(status.tunnelName);
-      if (config) {
-        const parsed = parseConfFile(config);
-        if (parsed && parsed.address) {
-          ip = parsed.address;
-        }
-      }
-    }
-    
-    const payload = {
-      client_id: clientId,
-      status: status.running ? 'connected' : 'disconnected',
-      tunnel_name: status.tunnelName || '',
-      ip: ip,
-      autostart: settings.autostart ? 1 : 0,
-      autoconnect: settings.autoconnect ? 1 : 0,
-      minimize_to_tray: settings.minimizeToTray !== false ? 1 : 0,
-      rx_bytes: rxBytes,
-      tx_bytes: txBytes
-    };
-
-    logDebug(`Initiating poll for client: ${clientId} (Status: ${payload.status})`);
-
-    let res;
-    try {
-      res = await postRequest('https://apivpn.dniprovska.net/api.php', payload);
-    } catch (e) {
-      logDebug(`HTTPS poll failed: ${e.message}. Trying HTTP fallback...`);
-      // Fallback to HTTP if HTTPS fails
-      try {
-        res = await postRequest('http://apivpn.dniprovska.net/api.php', payload);
-      } catch (httpError) {
-        logDebug(`HTTP poll failed: ${httpError.message}`);
-        console.error('API polling failed on both HTTPS and HTTP:', httpError.message);
-        return;
-      }
-    }
-
-    if (res && res.status === 'ok') {
-      logDebug(`Poll successful. Command: ${res.command || 'none'}`);
-      if (res.command) {
-        await executeRemoteCommand(res.command, res.payload);
-      }
-    } else {
-      logDebug(`Poll returned non-ok status: ${JSON.stringify(res)}`);
-    }
-  } catch (err) {
-    logDebug(`Poll server exception: ${err.message}`);
-    console.error('Remote polling error:', err.message);
-  }
-}
-
-async function executeRemoteCommand(command, payload) {
-  try {
-    // Helper to send events to Renderer UI
-    const notifyRenderer = (event, data) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send(event, data);
-      }
-    };
-
-    const status = await getVpnStatus();
-
-    if (command === 'update_config' && payload) {
-      notifyRenderer('vpn:remote-toast', { message: 'Отримано оновлення конфігурації...', type: 'info', icon: '📥' });
-      
-      if (status.running && status.tunnelName) {
-        await stopTunnel(status.tunnelName);
-        notifyRenderer('vpn:state-changed', { state: 'disconnected' });
-      }
-
-      const tunnelName = 'apgk_vpn';
-      ensureAppDataDir();
-      const destPath = path.join(APP_DATA, `${tunnelName}.conf`);
-      fs.writeFileSync(destPath, payload, 'utf8');
-      
-      await installTunnel(destPath);
-      notifyRenderer('vpn:remote-toast', { message: 'Конфіг оновлено віддалено!', type: 'success', icon: '⚙️' });
-
-      // Automatically start the tunnel
-      setTimeout(async () => {
-        try {
-          await startTunnel(tunnelName);
-          notifyRenderer('vpn:state-changed', { state: 'connected', tunnelName: tunnelName });
-          notifyRenderer('vpn:remote-toast', { message: 'VPN активовано з новим конфігом', type: 'success', icon: '🔒' });
-        } catch (err) {
-          notifyRenderer('vpn:state-changed', { state: 'error', error: err.message });
-        }
-      }, 2000);
-    } 
-    
-    else if (command === 'connect') {
-      const activeTunnel = status.tunnelName || 'apgk_vpn';
-      if (!status.running) {
-        notifyRenderer('vpn:remote-toast', { message: 'Отримано віддалену команду: Підключити', type: 'info', icon: '🔌' });
-        await startTunnel(activeTunnel);
-        notifyRenderer('vpn:state-changed', { state: 'connected', tunnelName: activeTunnel });
-      }
-    } 
-    
-    else if (command === 'disconnect') {
-      if (status.running && status.tunnelName) {
-        notifyRenderer('vpn:remote-toast', { message: 'Отримано віддалену команду: Відключити', type: 'warning', icon: '🔌' });
-        await stopTunnel(status.tunnelName);
-        notifyRenderer('vpn:state-changed', { state: 'disconnected' });
-      }
-    } 
-    
-    else if (command === 'restart') {
-      const activeTunnel = status.tunnelName || 'apgk_vpn';
-      notifyRenderer('vpn:remote-toast', { message: 'Отримано віддалену команду: Перезапустити', type: 'info', icon: '🔄' });
-      
-      if (status.running && status.tunnelName) {
-        await stopTunnel(status.tunnelName);
-        notifyRenderer('vpn:state-changed', { state: 'disconnected' });
-        setTimeout(async () => {
-          try {
-            await startTunnel(activeTunnel);
-            notifyRenderer('vpn:state-changed', { state: 'connected', tunnelName: activeTunnel });
-          } catch (e) {
-            notifyRenderer('vpn:state-changed', { state: 'error', error: e.message });
-          }
-        }, 2000);
-      } else {
-        await startTunnel(activeTunnel);
-        notifyRenderer('vpn:state-changed', { state: 'connected', tunnelName: activeTunnel });
-      }
-    } 
-    
-    else if (command === 'update_settings' && payload) {
-      notifyRenderer('vpn:remote-toast', { message: 'Оновлення налаштувань з веб-панелі', type: 'info', icon: '⚙️' });
-      const remoteSettings = JSON.parse(payload);
-      
-      const localSettings = {
-        autoconnect: parseInt(remoteSettings.autoconnect) === 1,
-        autostart: parseInt(remoteSettings.autostart) === 1,
-        minimizeToTray: parseInt(remoteSettings.minimize_to_tray) === 1
-      };
-
-      // Save to window-settings.json
-      const currentSettings = loadWindowSettings();
-      const updated = { ...currentSettings, ...localSettings };
-      saveWindowSettings(updated);
-
-      // Notify UI to update checkboxes
-      notifyRenderer('vpn:remote-settings-updated', localSettings);
-    }
-  } catch (err) {
-    console.error('Error executing remote command:', err.message);
-  }
-}
+// C# Helper now handles background checks and remote polling, so no Electron background checks needed.
 
 // ===== App Lifecycle =====
 
