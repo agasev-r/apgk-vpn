@@ -20,7 +20,7 @@ namespace ApgkVpnHelper
         private string tunnelsDir = @"C:\ProgramData\APGK_VPN\tunnels";
         private string appIdPath = @"C:\ProgramData\APGK_VPN\app_id.txt";
         private string wgExe = @"C:\Program Files\WireGuard\wireguard.exe";
-        private string apiUrl = "https://apgk.com.ua/vpn/api.php";
+        private string apiUrl = "https://apivpn.dniprovska.net/api.php";
         private string appId = "";
         
         private int failedPings = 0;
