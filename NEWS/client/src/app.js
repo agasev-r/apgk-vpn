@@ -1,5 +1,3 @@
-const { ipcRenderer } = require('electron');
-
 const valId = document.getElementById('val-id');
 const valStatus = document.getElementById('val-status');
 const valIp = document.getElementById('val-ip');
@@ -8,13 +6,13 @@ const statusDot = document.getElementById('status-dot');
 let currentTunnel = null;
 
 // ===== Titlebar Controls =====
-document.getElementById('btn-minimize').addEventListener('click', () => ipcRenderer.send('window:minimize'));
-document.getElementById('btn-close').addEventListener('click', () => ipcRenderer.send('window:close'));
+document.getElementById('btn-minimize').addEventListener('click', () => window.vpnAPI.windowMinimize());
+document.getElementById('btn-close').addEventListener('click', () => window.vpnAPI.windowClose());
 
 // ===== Initialization =====
 async function init() {
   // Get Client ID
-  const id = await ipcRenderer.invoke('vpn:get-client-id');
+  const id = await window.vpnAPI.getClientId();
   valId.textContent = id || 'Невідомо';
 
   // Start polling status
@@ -25,20 +23,20 @@ async function init() {
 // ===== Status Polling =====
 async function pollStatus() {
   try {
-    const status = await ipcRenderer.invoke('vpn:status');
+    const status = await window.vpnAPI.getStatus();
     
     if (status && status.running && status.tunnelName) {
       currentTunnel = status.tunnelName;
       valStatus.textContent = 'Підключено';
       statusDot.classList.add('connected');
       
-      // Get Exact IP
-      const ip = await ipcRenderer.invoke('vpn:get-ip', currentTunnel);
-      if (ip) {
-         valIp.textContent = ip;
+      // Fetch IP address from config
+      const conf = await window.vpnAPI.getTunnelConfig(currentTunnel);
+      if (conf && conf.address) {
+        valIp.textContent = conf.address;
       } else {
         // Fallback to endpoint if IP not found
-        const stats = await ipcRenderer.invoke('vpn:stats', currentTunnel);
+        const stats = await window.vpnAPI.getStats(currentTunnel);
         if (stats && stats.endpoint) {
           valIp.textContent = stats.endpoint; 
         }
