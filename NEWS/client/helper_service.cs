@@ -100,11 +100,11 @@ namespace ApgkVpnHelper
                     SendStatsAndPollCommands();
                 }
 
-                // 2. Watchdog (Every 20 seconds)
+                // 2. Watchdog (Every 20 seconds) - DISABLED, Wireguard is stateless and handles reconnects automatically
                 if ((now - lastWatchdogTime).TotalSeconds >= 20)
                 {
                     lastWatchdogTime = now;
-                    RunWatchdog();
+                    // RunWatchdog(); // DO NOT RESTART TUNNEL
                 }
 
                 Thread.Sleep(1000);
