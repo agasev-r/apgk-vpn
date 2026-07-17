@@ -27,10 +27,16 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_stats' && isset($_GET['cl
         $stmt->execute([$clientId]);
         $connections = $stmt->fetchAll();
 
+        // Fetch recent commands
+        $stmt = $pdo->prepare("SELECT `id`, `command`, `status`, `created_at` FROM `commands` WHERE `client_id` = ? ORDER BY `created_at` DESC LIMIT 5");
+        $stmt->execute([$clientId]);
+        $commands = $stmt->fetchAll();
+
         echo json_encode([
             'status' => 'ok',
             'traffic' => $traffic,
-            'connections' => $connections
+            'connections' => $connections,
+            'commands' => $commands
         ]);
     } catch (PDOException $e) {
         header('HTTP/1.1 500 Internal Server Error');
@@ -1125,8 +1131,25 @@ if (isset($_SESSION['admin_logged'])) {
                 </form>
             </div>
             <p style="font-size: 12px; color: var(--text-muted); text-align: center;">
-                💡 Команда буде надіслана та виконана на клієнті протягом 60 секунд (під час наступного запиту програми).
+                💡 Команда буде надіслана та виконана на клієнті протягом 5 секунд.
             </p>
+
+            <div style="margin-top: 20px;">
+                <h4 style="margin-bottom: 10px; font-size: 14px;">Статус команд</h4>
+                <table class="table" style="font-size: 13px;" id="commands_table">
+                    <thead>
+                        <tr>
+                            <th>Час</th>
+                            <th>Команда</th>
+                            <th>Статус</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td colspan="3" style="text-align: center; color: var(--text-muted); padding: 10px;">Завантаження...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
             <div style="margin-top: 30px; border-top: 1px solid var(--border-color); padding-top: 20px; text-align: right;">
                 <form method="POST" onsubmit="return confirm('Ви впевнені, що хочете повністю видалити цей пристрій з бази даних?');" style="display: inline-block;">
                     <input type="hidden" name="client_id" class="ctrl_client_id_val">
@@ -1411,6 +1434,34 @@ if (isset($_SESSION['admin_logged'])) {
                             <td style="padding: 6px 10px; color: var(--primary); font-weight: 500;">${formatBytes(rx)}</td>
                             <td style="padding: 6px 10px; color: var(--success); font-weight: 500;">${formatBytes(tx)}</td>
                             <td style="padding: 6px 10px; font-family: monospace; color: var(--text-muted);">${publicIp}</td>
+                        </tr>`;
+                    }).join('');
+                }
+
+                // Recent Commands
+                const cmdBody = document.querySelector('#commands_table tbody');
+                if (!data.commands || data.commands.length === 0) {
+                    cmdBody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--text-muted); padding: 10px;">Немає команд</td></tr>';
+                } else {
+                    cmdBody.innerHTML = data.commands.map(cmd => {
+                        const date = new Date(cmd.created_at);
+                        const dateStr = date.toLocaleTimeString('uk-UA', {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+                        let badgeClass = 'status-offline'; // pending
+                        let badgeText = 'В черзі';
+                        if (cmd.status === 'sent') {
+                            badgeClass = 'status-ready';
+                            badgeText = 'Відправлено';
+                        } else if (cmd.status === 'executed') {
+                            badgeClass = 'status-connected';
+                            badgeText = 'Виконано';
+                        } else if (cmd.status === 'failed') {
+                            badgeClass = 'status-disconnected';
+                            badgeText = 'Помилка';
+                        }
+                        return `<tr>
+                            <td style="padding: 6px 10px;">${dateStr}</td>
+                            <td style="padding: 6px 10px;"><b>${cmd.command}</b></td>
+                            <td style="padding: 6px 10px;"><span class="status-badge ${badgeClass}" style="font-size: 10px; padding: 2px 6px;">${badgeText}</span></td>
                         </tr>`;
                     }).join('');
                 }

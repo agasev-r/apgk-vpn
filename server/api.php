@@ -168,7 +168,7 @@ try {
     // Traffic update failure should not block the request
 }
 
-// 2. Upsert client status (Fix: use VALUES() in ON DUPLICATE KEY to avoid named param reuse)
+// 2. Upsert client status
 try {
     $stmt = $pdo->prepare("
         INSERT INTO `clients` 
@@ -198,6 +198,14 @@ try {
         'rx'               => $rx,
         'tx'               => $tx
     ]);
+
+    // Handle command acknowledgement
+    if (isset($data['cmd_ack_id']) && isset($data['cmd_ack_status'])) {
+        $ackId = (int)$data['cmd_ack_id'];
+        $ackStatus = $data['cmd_ack_status']; // 'executed' or 'failed'
+        $stmtAck = $pdo->prepare("UPDATE `commands` SET `status` = ? WHERE `id` = ? AND `client_id` = ?");
+        $stmtAck->execute([$ackStatus, $ackId, $clientId]);
+    }
 
     // Prune history older than 90 days (approx. 5% chance)
     if (rand(1, 20) === 1) {
