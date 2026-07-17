@@ -1318,6 +1318,9 @@ if (isset($_SESSION['admin_logged'])) {
         // Populate config textarea if saved
         document.querySelector('textarea[name="config_data"]').value = client.config || '';
 
+        // Fetch stats and commands immediately
+        loadClientStats(client.client_id);
+
         // Reset to first tab
         switchModalTab('control');
 
