@@ -48,7 +48,7 @@ Section "Install"
   Sleep 1000
 
   ; Create new service with proper quotes for path containing spaces
-  nsExec::ExecToLog 'sc.exe create ${SERVICE_NAME} binPath= "$\"$INSTDIR\${EXE_NAME}$\"" start= auto obj= LocalSystem'
+  nsExec::ExecToLog 'sc.exe create ${SERVICE_NAME} binPath= "\"$INSTDIR\${EXE_NAME}\"" start= auto obj= LocalSystem'
   Pop $0
   ${If} $0 == 0
     DetailPrint "Service registered successfully."
