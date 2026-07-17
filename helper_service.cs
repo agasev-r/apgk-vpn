@@ -305,7 +305,7 @@ namespace ApgkVpnHelper
                     client.Headers[HttpRequestHeader.ContentType] = "application/json";
                     var data = new Dictionary<string, object>
                     {
-                        { "app_id", appId },
+                        { "client_id", appId },
                         { "tunnel_name", tunnelName },
                         { "status", isRunning ? "connected" : "disconnected" },
                         { "ip", ip },
