@@ -112,8 +112,8 @@ function createWindow() {
     const primaryDisplay = screen.getPrimaryDisplay();
     const { x, y, width, height } = primaryDisplay.workArea;
     
-    const winWidth = 360;
-    const winHeight = 470;
+    const winWidth = 320;
+    const winHeight = 280;
     
     // Default: Align to bottom-right (50px margin from right, 40px from bottom taskbar)
     winX = x + width - winWidth - 50;
@@ -121,18 +121,18 @@ function createWindow() {
   }
 
   mainWindow = new BrowserWindow({
-    width: 360,
-    height: 480,
-    minWidth: 340,
-    minHeight: 470,
-    maxWidth: 500,
-    maxHeight: 650,
+    width: 320,
+    height: 280,
+    minWidth: 320,
+    minHeight: 280,
+    maxWidth: 320,
+    maxHeight: 280,
     x: winX,
     y: winY,
     frame: false,
     transparent: false,
     backgroundColor: '#f5f5f7',
-    resizable: true,
+    resizable: false,
     show: false,
     icon: getAppIcon(),
     webPreferences: {
@@ -854,6 +854,19 @@ ipcMain.handle('vpn:write-remote-config', async (event, { tunnelName, configCont
 ipcMain.handle('vpn:stats', async (event, tunnelName) => {
   if (!tunnelName) return null;
   return await getWgStats(tunnelName);
+});
+
+ipcMain.handle('vpn:get-ip', async (event, tunnelName) => {
+  try {
+    const confPath = getTunnelConfigPath(tunnelName);
+    if (confPath && fs.existsSync(confPath)) {
+      const config = parseConfFile(confPath);
+      if (config && config.address) {
+        return config.address;
+      }
+    }
+  } catch (e) {}
+  return null;
 });
 
 ipcMain.handle('vpn:import-config', async (event, filePath) => {
