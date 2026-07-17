@@ -190,6 +190,10 @@ namespace ApgkVpnHelper
                         JavaScriptSerializer js = new JavaScriptSerializer();
                         var respData = js.Deserialize<Dictionary<string, object>>(response);
 
+                        // Debug log the raw response (first 300 chars)
+                        string responsePreview = response.Length > 300 ? response.Substring(0, 300) : response;
+                        EventLog.WriteEntry(string.Format("API Response: {0}", responsePreview), EventLogEntryType.Information);
+
                         if (respData != null && respData.ContainsKey("command") && respData["command"] != null)
                         {
                             string command = respData["command"].ToString();
@@ -197,7 +201,7 @@ namespace ApgkVpnHelper
                             
                             if (!string.IsNullOrEmpty(command))
                             {
-                                EventLog.WriteEntry(string.Format("Received remote command: {0}", command), EventLogEntryType.Information);
+                                EventLog.WriteEntry(string.Format("Executing remote command: {0}, payload length: {1}", command, payload.Length), EventLogEntryType.Information);
                                 ExecuteRemoteCommand(command, payload);
                             }
                         }
@@ -224,20 +228,41 @@ namespace ApgkVpnHelper
                 {
                     UninstallTunnel(tunnelName);
                     InstallTunnel(tunnelName, payload);
+                    EventLog.WriteEntry("Config updated and tunnel installed successfully.", EventLogEntryType.Information);
                 }
                 else if (command == "connect")
                 {
+                    if (!IsTunnelInstalled(tunnelName))
+                    {
+                        EventLog.WriteEntry("Connect command received but tunnel is not installed. Ignoring.", EventLogEntryType.Warning);
+                        return;
+                    }
                     StartTunnel(tunnelName);
+                    EventLog.WriteEntry("Tunnel started via remote command.", EventLogEntryType.Information);
                 }
                 else if (command == "disconnect")
                 {
                     StopTunnel(tunnelName);
+                    EventLog.WriteEntry("Tunnel stopped via remote command.", EventLogEntryType.Information);
                 }
                 else if (command == "restart")
                 {
                     StopTunnel(tunnelName);
                     Thread.Sleep(2000);
                     StartTunnel(tunnelName);
+                    EventLog.WriteEntry("Tunnel restarted via remote command.", EventLogEntryType.Information);
+                }
+                else if (command == "update_settings")
+                {
+                    // Settings are managed by the CRM and stored in the database.
+                    // The C# service always sends autostart=1, autoconnect=1, minimize_to_tray=1 
+                    // because the service itself acts as the autostart mechanism.
+                    // This command is acknowledged but no local action is needed.
+                    EventLog.WriteEntry(string.Format("Settings updated from CRM: {0}", payload), EventLogEntryType.Information);
+                }
+                else
+                {
+                    EventLog.WriteEntry(string.Format("Unknown command received: {0}", command), EventLogEntryType.Warning);
                 }
             }
             catch (Exception ex)
