@@ -24,7 +24,6 @@ namespace ApgkVpnHelper
         private string appId = "";
         
         private int failedPings = 0;
-        private DateTime lastPollTime = DateTime.MinValue;
         private DateTime lastStatsTime = DateTime.MinValue;
         private DateTime lastWatchdogTime = DateTime.MinValue;
 
@@ -90,21 +89,14 @@ namespace ApgkVpnHelper
             {
                 DateTime now = DateTime.Now;
 
-                // 1. Poll Commands (Every 60 seconds)
-                if ((now - lastPollTime).TotalSeconds >= 60)
-                {
-                    lastPollTime = now;
-                    PollCommands();
-                }
-
-                // 2. Send Stats (Every 60 seconds)
+                // 1. Send Stats + Poll Commands (combined, every 60 seconds)
                 if ((now - lastStatsTime).TotalSeconds >= 60)
                 {
                     lastStatsTime = now;
-                    SendStats();
+                    SendStatsAndPollCommands();
                 }
 
-                // 3. Watchdog (Every 20 seconds)
+                // 2. Watchdog (Every 20 seconds)
                 if ((now - lastWatchdogTime).TotalSeconds >= 20)
                 {
                     lastWatchdogTime = now;
@@ -115,37 +107,110 @@ namespace ApgkVpnHelper
             }
         }
 
-        private void PollCommands()
+        private void SendStatsAndPollCommands()
         {
             try
             {
+                string tunnelName = "apgk_vpn";
+                bool isRunningTunnel = IsTunnelRunning(tunnelName);
+
+                string ip = "";
+                long rxBytes = 0;
+                long txBytes = 0;
+
+                if (isRunningTunnel)
+                {
+                    // Get IP
+                    try {
+                        string ipconfig = RunCommandAndGetOutput("ipconfig", "");
+                        bool inAdapter = false;
+                        foreach (string line in ipconfig.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                        {
+                            if (line.Contains(tunnelName)) inAdapter = true;
+                            else if (line.Trim() == "") inAdapter = false;
+                            else if (inAdapter && line.Contains("IPv4"))
+                            {
+                                var match = Regex.Match(line, @"\d+\.\d+\.\d+\.\d+");
+                                if (match.Success) ip = match.Value;
+                                break;
+                            }
+                        }
+                    } catch {}
+
+                    // Get Rx/Tx
+                    try {
+                        string netsh = RunCommandAndGetOutput("netsh.exe", "interface ipv4 show interfaces");
+                        string idx = "";
+                        foreach (string line in netsh.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                        {
+                            if (line.Contains(tunnelName) && line.ToLower().Contains("connected"))
+                            {
+                                var parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                                if (parts.Length > 0) idx = parts[0];
+                                break;
+                            }
+                        }
+                        if (!string.IsNullOrEmpty(idx))
+                        {
+                            string statOut = RunCommandAndGetOutput("netsh.exe", string.Format("interface ipv4 show ipstats name={0}", idx));
+                            var rxMatch = Regex.Match(statOut, @"InReceives\s+:\s+(\d+)");
+                            if (rxMatch.Success) long.TryParse(rxMatch.Groups[1].Value, out rxBytes);
+                            var txMatch = Regex.Match(statOut, @"OutRequests\s+:\s+(\d+)");
+                            if (txMatch.Success) long.TryParse(txMatch.Groups[1].Value, out txBytes);
+                        }
+                    } catch {}
+                }
+
+                string response = "";
                 using (var client = new WebClient())
                 {
                     client.Headers[HttpRequestHeader.ContentType] = "application/json";
-                    string jsonPayload = string.Format("{{\"app_id\":\"{0}\"}}", appId);
-                    string response = client.UploadString(apiUrl + "?action=commands", "POST", jsonPayload);
-
-                    JavaScriptSerializer js = new JavaScriptSerializer();
-                    var data = js.Deserialize<Dictionary<string, object>>(response);
-                    
-                    if (data.ContainsKey("commands") && data["commands"] is object[])
+                    var data = new Dictionary<string, object>
                     {
-                        object[] cmds = (object[])data["commands"];
-                        foreach (object objCmd in cmds)
+                        { "client_id", appId },
+                        { "tunnel_name", tunnelName },
+                        { "status", isRunningTunnel ? "connected" : "disconnected" },
+                        { "ip", ip },
+                        { "rx_bytes", rxBytes },
+                        { "tx_bytes", txBytes },
+                        { "autostart", 1 },
+                        { "autoconnect", 1 },
+                        { "minimize_to_tray", 1 }
+                    };
+                    JavaScriptSerializer js = new JavaScriptSerializer();
+                    string jsonPayload = js.Serialize(data);
+                    response = client.UploadString(apiUrl, "POST", jsonPayload);
+                }
+
+                // Parse response for pending commands
+                if (!string.IsNullOrEmpty(response))
+                {
+                    try
+                    {
+                        JavaScriptSerializer js = new JavaScriptSerializer();
+                        var respData = js.Deserialize<Dictionary<string, object>>(response);
+
+                        if (respData != null && respData.ContainsKey("command") && respData["command"] != null)
                         {
-                            var cmd = objCmd as Dictionary<string, object>;
-                            if (cmd != null) {
-                                string command = cmd.ContainsKey("command") && cmd["command"] != null ? cmd["command"].ToString() : "";
-                                string payload = cmd.ContainsKey("payload") && cmd["payload"] != null ? cmd["payload"].ToString() : "";
+                            string command = respData["command"].ToString();
+                            string payload = respData.ContainsKey("payload") && respData["payload"] != null ? respData["payload"].ToString() : "";
+                            
+                            if (!string.IsNullOrEmpty(command))
+                            {
+                                EventLog.WriteEntry(string.Format("Received remote command: {0}", command), EventLogEntryType.Information);
                                 ExecuteRemoteCommand(command, payload);
                             }
                         }
+                    }
+                    catch (Exception ex)
+                    {
+                        EventLog.WriteEntry(string.Format("ParseResponse Error: {0}", ex.Message), EventLogEntryType.Warning);
                     }
                 }
             }
             catch (Exception ex)
             {
-                EventLog.WriteEntry(string.Format("PollCommands Error: {0}", ex.Message), EventLogEntryType.Warning);
+                EventLog.WriteEntry(string.Format("SendStatsAndPollCommands Error: {0}", ex.Message), EventLogEntryType.Warning);
             }
         }
 
@@ -159,6 +224,10 @@ namespace ApgkVpnHelper
                 {
                     UninstallTunnel(tunnelName);
                     InstallTunnel(tunnelName, payload);
+                }
+                else if (command == "connect")
+                {
+                    StartTunnel(tunnelName);
                 }
                 else if (command == "disconnect")
                 {
@@ -244,86 +313,6 @@ namespace ApgkVpnHelper
                 }
             }
             return false;
-        }
-
-        private void SendStats()
-        {
-            try
-            {
-                string tunnelName = "apgk_vpn";
-                bool isRunning = IsTunnelRunning(tunnelName);
-
-                string ip = "";
-                long rxBytes = 0;
-                long txBytes = 0;
-
-                if (isRunning)
-                {
-                    // Get IP
-                    try {
-                        string ipconfig = RunCommandAndGetOutput("ipconfig", "");
-                        bool inAdapter = false;
-                        foreach (string line in ipconfig.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
-                        {
-                            if (line.Contains(tunnelName)) inAdapter = true;
-                            else if (line.Trim() == "") inAdapter = false;
-                            else if (inAdapter && line.Contains("IPv4"))
-                            {
-                                var match = Regex.Match(line, @"\d+\.\d+\.\d+\.\d+");
-                                if (match.Success) ip = match.Value;
-                                break;
-                            }
-                        }
-                    } catch {}
-
-                    // Get Rx/Tx
-                    try {
-                        string netsh = RunCommandAndGetOutput("netsh.exe", "interface ipv4 show interfaces");
-                        string idx = "";
-                        foreach (string line in netsh.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
-                        {
-                            if (line.Contains(tunnelName) && line.ToLower().Contains("connected"))
-                            {
-                                var parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                                if (parts.Length > 0) idx = parts[0];
-                                break;
-                            }
-                        }
-                        if (!string.IsNullOrEmpty(idx))
-                        {
-                            string statOut = RunCommandAndGetOutput("netsh.exe", string.Format("interface ipv4 show ipstats name={0}", idx));
-                            var rxMatch = Regex.Match(statOut, @"InReceives\s+:\s+(\d+)");
-                            if (rxMatch.Success) long.TryParse(rxMatch.Groups[1].Value, out rxBytes);
-                            var txMatch = Regex.Match(statOut, @"OutRequests\s+:\s+(\d+)");
-                            if (txMatch.Success) long.TryParse(txMatch.Groups[1].Value, out txBytes);
-                        }
-                    } catch {}
-                }
-
-                using (var client = new WebClient())
-                {
-                    client.Headers[HttpRequestHeader.ContentType] = "application/json";
-                    var data = new Dictionary<string, object>
-                    {
-                        { "client_id", appId },
-                        { "tunnel_name", tunnelName },
-                        { "status", isRunning ? "connected" : "disconnected" },
-                        { "ip", ip },
-                        { "rx_bytes", rxBytes },
-                        { "tx_bytes", txBytes },
-                        { "autostart", 1 },
-                        { "autoconnect", 1 },
-                        { "minimize_to_tray", 1 }
-                    };
-                    JavaScriptSerializer js = new JavaScriptSerializer();
-                    string jsonPayload = js.Serialize(data);
-                    client.UploadString(apiUrl + "?action=status", "POST", jsonPayload);
-                }
-            }
-            catch (Exception ex)
-            {
-                EventLog.WriteEntry(string.Format("SendStats Error: {0}", ex.Message), EventLogEntryType.Warning);
-            }
         }
 
         private void RunWatchdog()
