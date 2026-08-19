@@ -1494,38 +1494,36 @@ if (isset($_SESSION['admin_logged'])) {
 <script>
     function sortTable(th, n) {
         var table = th.closest("table");
-        var rows, switching, i, x, y, shouldSwitch, dir, switchcount = 0;
-        switching = true;
-        dir = "asc"; 
-        while (switching) {
-            switching = false;
-            rows = table.rows;
-            for (i = 1; i < (rows.length - 1); i++) {
-                shouldSwitch = false;
-                x = rows[i].getElementsByTagName("TD")[n];
-                y = rows[i + 1].getElementsByTagName("TD")[n];
-                if (!x || !y) continue;
-                
-                let cmpX = x.textContent.trim().toLowerCase();
-                let cmpY = y.textContent.trim().toLowerCase();
-                
-                if (dir == "asc") {
-                    if (cmpX > cmpY) { shouldSwitch = true; break; }
-                } else if (dir == "desc") {
-                    if (cmpX < cmpY) { shouldSwitch = true; break; }
-                }
-            }
-            if (shouldSwitch) {
-                rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
-                switching = true;
-                switchcount ++;      
-            } else {
-                if (switchcount == 0 && dir == "asc") {
-                    dir = "desc";
-                    switching = true;
-                }
-            }
-        }
+        var tbody = table.querySelector("tbody");
+        if (!tbody) return;
+        
+        var rows = Array.from(tbody.querySelectorAll("tr"));
+        if (rows.length <= 1) return; // Nothing to sort if 0 or 1 row
+        
+        // Determine current direction from a custom attribute on the TH
+        var currentDir = th.getAttribute("data-sort-dir") || "desc";
+        var dir = currentDir === "asc" ? "desc" : "asc";
+        th.setAttribute("data-sort-dir", dir);
+        
+        var collator = new Intl.Collator(['uk', 'ru', 'en'], { numeric: true, sensitivity: 'base' });
+        
+        rows.sort(function(a, b) {
+            var cellA = a.querySelectorAll("td")[n];
+            var cellB = b.querySelectorAll("td")[n];
+            
+            if (!cellA || !cellB) return 0;
+            
+            var valA = cellA.textContent.trim();
+            var valB = cellB.textContent.trim();
+            
+            var compareResult = collator.compare(valA, valB);
+            return dir === "asc" ? compareResult : -compareResult;
+        });
+        
+        // Re-append sorted rows to tbody
+        rows.forEach(function(row) {
+            tbody.appendChild(row);
+        });
     }
 </script>
 </body>
