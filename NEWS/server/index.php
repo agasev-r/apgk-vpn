@@ -897,28 +897,27 @@ if (isset($_SESSION['admin_logged'])) {
             <!-- Registered Clients Section -->
             <div class="section-title">Список зареєстрованих клієнтів</div>
             <div class="table-card">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>ФІО</th>
-                            <th>Підприємство</th>
-                            <th>VPN тунель</th>
-                            <th>IP адреса</th>
-                            <th>Останній зв'язок</th>
-                            <th>Трафік (Завантажено / Віддано)</th>
-                            <th>Статус ПК</th>
-                            <th>Статус VPN</th>
-                            <th>Керування</th>
-                        </tr>
-                    </thead>
+                    <table id="clients_table">
+                        <thead>
+                            <tr>
+                                <th onclick="sortTable(this, 0)" style="cursor:pointer;" title="Сортувати">ID ↕</th>
+                                <th onclick="sortTable(this, 1)" style="cursor:pointer;" title="Сортувати">ФІО ↕</th>
+                                <th onclick="sortTable(this, 2)" style="cursor:pointer;" title="Сортувати">Підприємство ↕</th>
+                                <th onclick="sortTable(this, 3)" style="cursor:pointer;" title="Сортувати">VPN тунель ↕</th>
+                                <th onclick="sortTable(this, 4)" style="cursor:pointer;" title="Сортувати">IP адреса ↕</th>
+                                <th onclick="sortTable(this, 5)" style="cursor:pointer;" title="Сортувати">Останній зв'язок ↕</th>
+                                <th onclick="sortTable(this, 6)" style="cursor:pointer;" title="Сортувати">Статус ПК ↕</th>
+                                <th onclick="sortTable(this, 7)" style="cursor:pointer;" title="Сортувати">Статус VPN ↕</th>
+                                <th>Керування</th>
+                            </tr>
+                        </thead>
                     <tbody>
                         <?php
                         $stmt = $pdo->query("SELECT * FROM `clients` WHERE `name` IS NOT NULL ORDER BY `last_seen` DESC");
                         if ($stmt->rowCount() === 0):
                         ?>
                             <tr>
-                                <td colspan="10" style="text-align: center; color: var(--text-muted); padding: 30px;">Немає зареєстрованих клієнтів.</td>
+                                <td colspan="9" style="text-align: center; color: var(--text-muted); padding: 30px;">Немає зареєстрованих клієнтів.</td>
                             </tr>
                         <?php
                         endif;
@@ -938,9 +937,6 @@ if (isset($_SESSION['admin_logged'])) {
                                 <td><?= htmlspecialchars($client['tunnel_name'] ?? '—') ?></td>
                                 <td><span style="font-family: monospace;"><?= htmlspecialchars($client['ip'] ?? '—') ?></span></td>
                                 <td><?= date('d.m.Y H:i:s', strtotime($client['last_seen'])) ?></td>
-                                <td style="font-size: 13px; color: var(--text-muted);">
-                                    📥 <?= $rx_formatted ?> / 📤 <?= $tx_formatted ?>
-                                </td>
                                 <td>
                                     <?php if ($isOffline): ?>
                                         <span class="status-badge status-offline">Вимкнено</span>

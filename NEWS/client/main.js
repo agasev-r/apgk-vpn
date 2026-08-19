@@ -113,7 +113,7 @@ function createWindow() {
     const { x, y, width, height } = primaryDisplay.workArea;
     
     const winWidth = 320;
-    const winHeight = 360;
+    const winHeight = 410;
     
     // Default: Align to bottom-right (50px margin from right, 40px from bottom taskbar)
     winX = x + width - winWidth - 50;
@@ -122,11 +122,11 @@ function createWindow() {
 
   mainWindow = new BrowserWindow({
     width: 320,
-    height: 360,
+    height: 410,
     minWidth: 320,
-    minHeight: 360,
+    minHeight: 410,
     maxWidth: 320,
-    maxHeight: 360,
+    maxHeight: 410,
     x: winX,
     y: winY,
     frame: false,
