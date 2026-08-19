@@ -143,24 +143,21 @@ namespace ApgkVpnHelper
 
                     // Get Rx/Tx
                     try {
-                        string netsh = RunCommandAndGetOutput("netsh.exe", "interface ipv4 show interfaces");
-                        string idx = "";
-                        foreach (string line in netsh.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                        string subOut = RunCommandAndGetOutput("netsh.exe", "interface ipv4 show subinterfaces");
+                        foreach (string line in subOut.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
                         {
-                            if (line.Contains(tunnelName) && line.ToLower().Contains("connected"))
+                            string t = line.Trim();
+                            var parts = t.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                            if (parts.Length >= 5)
                             {
-                                var parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                                if (parts.Length > 0) idx = parts[0];
-                                break;
+                                string name = string.Join(" ", parts, 4, parts.Length - 4);
+                                if (name.Equals(tunnelName, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    long.TryParse(parts[2], out rxBytes);
+                                    long.TryParse(parts[3], out txBytes);
+                                    break;
+                                }
                             }
-                        }
-                        if (!string.IsNullOrEmpty(idx))
-                        {
-                            string statOut = RunCommandAndGetOutput("netsh.exe", string.Format("interface ipv4 show ipstats name={0}", idx));
-                            var rxMatch = Regex.Match(statOut, @"InReceives\s+:\s+(\d+)");
-                            if (rxMatch.Success) long.TryParse(rxMatch.Groups[1].Value, out rxBytes);
-                            var txMatch = Regex.Match(statOut, @"OutRequests\s+:\s+(\d+)");
-                            if (txMatch.Success) long.TryParse(txMatch.Groups[1].Value, out txBytes);
                         }
                     } catch {}
                 }
