@@ -913,7 +913,7 @@ if (isset($_SESSION['admin_logged'])) {
                         </thead>
                     <tbody>
                         <?php
-                        $stmt = $pdo->query("SELECT * FROM `clients` WHERE `name` IS NOT NULL ORDER BY `last_seen` DESC");
+                        $stmt = $pdo->query("SELECT * FROM `clients` WHERE `name` IS NOT NULL ORDER BY `name` ASC");
                         if ($stmt->rowCount() === 0):
                         ?>
                             <tr>
@@ -1487,6 +1487,44 @@ if (isset($_SESSION['admin_logged'])) {
         }
         if (event.target === editAdmModal) {
             closeEditAdminModal();
+        }
+    }
+</script>
+
+<script>
+    function sortTable(th, n) {
+        var table = th.closest("table");
+        var rows, switching, i, x, y, shouldSwitch, dir, switchcount = 0;
+        switching = true;
+        dir = "asc"; 
+        while (switching) {
+            switching = false;
+            rows = table.rows;
+            for (i = 1; i < (rows.length - 1); i++) {
+                shouldSwitch = false;
+                x = rows[i].getElementsByTagName("TD")[n];
+                y = rows[i + 1].getElementsByTagName("TD")[n];
+                if (!x || !y) continue;
+                
+                let cmpX = x.textContent.trim().toLowerCase();
+                let cmpY = y.textContent.trim().toLowerCase();
+                
+                if (dir == "asc") {
+                    if (cmpX > cmpY) { shouldSwitch = true; break; }
+                } else if (dir == "desc") {
+                    if (cmpX < cmpY) { shouldSwitch = true; break; }
+                }
+            }
+            if (shouldSwitch) {
+                rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+                switching = true;
+                switchcount ++;      
+            } else {
+                if (switchcount == 0 && dir == "asc") {
+                    dir = "desc";
+                    switching = true;
+                }
+            }
         }
     }
 </script>
